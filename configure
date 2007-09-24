@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+LIBIBV=libibverbs.so.1
+
+# Look for InfiniBand verbs library.
+#
+for DIR in /lib /usr/lib64 /usr/lib /usr/local/lib /usr/local/ibed/lib64 ""; do
+    [ -e $DIR/$LIBIBV ] &&
+        break
+done
+
+
+# Set up parameters.
+#
+if [ "`uname -m`" = ppc64 ]; then
+    K_M64=-m64
+    echo "Making PowerPC version"
+fi
+if [ -z "$DIR" ]; then
+    echo "Could not find $LIBIBV; making non-RDMA version"
+else
+    echo "Found $LIBIBV in $DIR"
+    K_IB_O="ib.o"
+    K_DEF_IB="-DRDMA"
+    if [ "$DIR" = "/usr/lib64" ]; then
+        K_LIBS="-libverbs"
+    else
+        K_LIBS="-lsysfs -Wl,--rpath -Wl,$DIR $DIR/$LIBIBV"
+    fi
+    K_IB=RDMA
+fi
+
+
+# Produce Makefile
+#
+cat <<EOF >Makefile
+CC	= gcc $K_M64
+CFLAGS	= -Wall -O $K_DEF_IB
+
+all:	qperf
+
+qperf:	qperf.o ip.o $K_IB_O help.o
+	\$(CC) $K_DEF_IB -o \$@ \$^ $K_LIBS
+
+help.c: help.txt
+	./mkhelp $K_IB
+
+.PHONY: clean
+clean:
+	rm -f *.o help.c qperf
+
+.PHONY: install
+install:
+	cp qperf /usr/local/bin
+EOF
