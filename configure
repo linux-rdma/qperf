@@ -37,7 +37,10 @@ cat <<EOF >Makefile
 CC	= gcc $K_M64
 CFLAGS	= -Wall -O $K_DEF_IB
 
-all:	qperf
+all:	qperf qperf.1
+
+qperf.1:	help.txt
+	./mkman >qperf.1
 
 qperf:	qperf.o ip.o $K_IB_O help.o
 	\$(CC) $K_DEF_IB -o \$@ \$^ $K_LIBS
@@ -47,7 +50,7 @@ help.c: help.txt
 
 .PHONY: clean
 clean:
-	rm -f *.o help.c qperf
+	rm -f *.o help.c qperf qperf.1
 
 .PHONY: install
 install:

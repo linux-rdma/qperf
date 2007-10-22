@@ -1,16 +1,40 @@
 Main
-    Usage:
-        qperf [options] <server_host> <test1> <test2> ...
+    Synopsis
+        qperf
+        qperf SERVERNODE [OPTIONS] TESTS
     Description
-        One typically runs qperf with no arguments on the server machine.  On a
-        client machine, one specifies the hostname of the server machine
-        followed by a list of tests that might be run.
+        qperf measures bandwidth and latency between two nodes.  It can work
+        over TCP/IP as well as the RDMA transports.  On one of the nodes, qperf
+        is typically run with no arguments designating it the server node.  One
+        may then run qperf on a client node to obtain measurements such as
+        bandwidth, latency and cpu utilization.
     More Information
         qperf --help examples       Some examples of using qperf
         qperf --help opts           Summary of options
         qperf --help options        Description of options
         qperf --help tests          Short summary and description of tests
-        qperf --help <test_name>    More information on a particular test
+        qperf --help TESTNAME       More information on test TESTNAME
+Author
+    Written by Johann George.
+Bugs
+    None of the RDMA tests are available if qperf is compiled without the RDMA
+    libraries.  The -f and the -Ar options are not yet implemented in most of
+    the tests.
+Examples
+    In these examples, we first run qperf on a node called myserver in server
+    mode by invoking it with no arguments.  In all the subsequent examples, we
+    run qperf on another node and connect to the server which we assume has a
+    hostname of myserver.
+        * To run a TCP bandwidth and latency test:
+            qperf myserver tcp_bw tcp_lat
+        * To run a SDP bandwidth test for 10 seconds:
+            qperf -t 10 myserver sdp_bw
+        * To run a UDP latency test and then cause the server to terminate:
+            qperf myserver udp_lat quit
+        * To measure the RDMA UD latency and bandwidth:
+            qperf myserver ud_lat ud_bw
+        * To measure RDMA UC bi-directional bandwidth:
+            qperf myserver rc_bi_bw
 Opts
     --access_recv Mode (-Ar)            Access receive data
     --affinity PN (-a)                  Set processor affinity
@@ -180,21 +204,6 @@ Options
     --wait Time (-W)
           If the server is not ready, continue to try connecting for Time
           seconds before giving up.
-Examples
-    For these examples, we assume that qperf is running on a machine called
-    myserver in server mode.  To run qperf in server mode, run it with no
-    arguments.  In all the subsequent examples, we run qperf on another machine
-    and connect to the server which we assume has a hostname of myserver.
-        * To run a TCP bandwidth and latency test:
-            qperf myserver tcp_bw tcp_lat
-        * To run a SDP bandwidth test for 10 seconds:
-            qperf -t 10 myserver sdp_bw
-        * To run a UDP latency test and then cause the server to terminate:
-            qperf myserver udp_lat quit
-        * To measure the RDMA UD latency and bandwidth:
-            qperf myserver ud_lat ud_bw
-        * To measure RDMA UC bi-directional bandwidth:
-            qperf myserver rc_bi_bw
 Tests -RDMA
     Miscellaneous
         conf                    Show configuration
