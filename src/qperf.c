@@ -1,6 +1,6 @@
 /*
  * qperf - main.
- * Run performance tests over TCP/IP and RDMA.
+ * Measure IP and RDMA performance.
  *
  * Copyright (c) 2002-2007 Johann George.  All rights reserved.
  * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.

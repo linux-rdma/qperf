@@ -91,7 +91,7 @@ sub do_examples ($$) {
         printn '.TP';
         printn $1;
         s/^\s+//m;
-        printn $_;
+        print $_;
     }
 }
 

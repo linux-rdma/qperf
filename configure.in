@@ -1,0 +1,10 @@
+AC_INIT(src/qperf.c)
+
+PACKAGE=qperf
+VERSION=0.20.0
+
+AM_INIT_AUTOMAKE($PACKAGE, $VERSION)
+
+AC_PROG_CC
+
+AC_OUTPUT(Makefile src/Makefile)

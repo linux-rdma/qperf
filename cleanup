@@ -1,0 +1,23 @@
+#!/bin/sh
+# autotools makes such a mess.
+#
+make clean
+rm -r -f autom4te.cache
+rm -f `cat <<EOF
+    AUTHORS
+    ChangeLog
+    INSTALL
+    Makefile
+    Makefile.in
+    NEWS
+    README
+    aclocal.m4
+    config.log
+    config.status
+    configure
+    depcomp
+    install-sh
+    missing
+    src/Makefile
+    src/Makefile.in
+EOF`
