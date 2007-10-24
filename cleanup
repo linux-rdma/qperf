@@ -2,7 +2,7 @@
 # autotools makes such a mess.
 #
 make clean
-rm -r -f autom4te.cache
+rm -r -f .deps autom4te.cache
 rm -f `cat <<EOF
     AUTHORS
     ChangeLog
