@@ -1,9 +1,6 @@
-AC_INIT(src/qperf.c)
+AC_INIT(qperf, 0.20.0, general@lists.openfabrics.org)
 
-PACKAGE=qperf
-VERSION=0.20.0
-
-AM_INIT_AUTOMAKE($PACKAGE, $VERSION)
+AM_INIT_AUTOMAKE(qperf, 0.20.0)
 
 AC_PROG_CC
 

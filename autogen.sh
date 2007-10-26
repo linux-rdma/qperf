@@ -1,6 +1,7 @@
 #!/bin/sh
-#
+
+set -x
 touch AUTHORS NEWS README ChangeLog
-aclocal &&
-    automake --add-missing &&
-    autoconf
+aclocal
+automake --foreign --add-missing --copy
+autoconf
