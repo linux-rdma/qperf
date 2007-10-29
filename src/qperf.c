@@ -1,6 +1,6 @@
 /*
  * qperf - main.
- * Measure IP and RDMA performance.
+ * Measure socket and RDMA performance.
  *
  * Copyright (c) 2002-2007 Johann George.  All rights reserved.
  * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.

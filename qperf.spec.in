@@ -1,5 +1,5 @@
 Name:           qperf
-Summary:        Measure RMDA and IP performance
+Summary:        Measure socket and RDMA performance
 Version:        @VERSION@
 Release:        1
 License:        BSD 3-Clause, GPL v2
@@ -10,7 +10,7 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 BuildRequires:  libibverbs-devel
 
 %description
-Measure RDMA and IP performance.
+Measure socket and RDMA performance.
 
 %prep
 %setup -q
