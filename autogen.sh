@@ -1,7 +1,9 @@
 #!/bin/sh
 
 set -x
-touch AUTHORS NEWS README ChangeLog
+for f in AUTHORS NEWS README ChangeLog; do
+    [ -e "$f" ] || touch "$f"
+done
 aclocal
 automake --foreign --add-missing --copy
 autoconf

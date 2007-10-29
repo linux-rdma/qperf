@@ -1,16 +1,14 @@
 #!/bin/sh
 # autotools makes such a mess.
 #
-make clean
-rm -r -f .deps autom4te.cache
+for f in AUTHORS NEWS README ChangeLog; do
+    [ -s "$f" ] || rm -f "$f"
+done
+rm -r -f autom4te.cache .deps src/.deps
 rm -f `cat <<EOF
-    AUTHORS
-    ChangeLog
     INSTALL
     Makefile
     Makefile.in
-    NEWS
-    README
     aclocal.m4
     config.log
     config.status
@@ -18,6 +16,11 @@ rm -f `cat <<EOF
     depcomp
     install-sh
     missing
+    qperf.spec
     src/Makefile
     src/Makefile.in
+    src/*.o
+    src/help.c
+    src/qperf.1
+    src/qperf
 EOF`
