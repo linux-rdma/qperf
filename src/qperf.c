@@ -443,7 +443,7 @@ TEST Tests[] ={
     test(tcp_lat),
     test(udp_bw),
     test(udp_lat),
-#ifdef HAVE_LIBIBVERBS
+#ifdef RDMA
     test(rc_bi_bw),
     test(rc_bw),
     test(rc_compare_swap_mr),
