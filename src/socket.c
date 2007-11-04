@@ -33,6 +33,7 @@
  * SOFTWARE.
  */
 #define _GNU_SOURCE
+#include <errno.h>
 #include <netdb.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,12 +45,13 @@
  * Parameters.
  */
 #define AF_INET_SDP 27                  /* Family for SDP */
-#define AF_INET_RDS 30                  /* Family for RDS */
+#define AF_INET_RDS 28                  /* Family for RDS */
 
 
 /*
  * Function prototypes.
  */
+static char    *bind_error(int domain);
 static void     datagram_client_bw(int domain);
 static void     datagram_client_init(int *fd, int domain,
                                      struct sockaddr_in *addr);
@@ -700,20 +702,23 @@ err:
 static void
 datagram_client_init(int *fd, int domain, struct sockaddr_in *serverAddr)
 {
+    int type;
     uint32_t port;
     struct hostent *host;
     struct sockaddr_in clientAddr;
     socklen_t clientLen = sizeof(clientAddr);
 
     client_send_request();
-    *fd = socket(domain, SOCK_DGRAM, 0);
+    type = (domain == AF_INET_RDS) ? SOCK_SEQPACKET : SOCK_DGRAM;
+    *fd = socket(domain, type, 0);
     if (*fd < 0)
         syserror_die("socket failed");
     clientAddr.sin_family = AF_INET;
     clientAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     clientAddr.sin_port = htons(0);
     if (bind(*fd, (struct sockaddr *)&clientAddr, clientLen) < 0)
-        syserror_die("bind failed");
+        /* syserror_die("bind failed"); */
+        syserror_die(bind_error(domain));
     if (getsockname(*fd, (struct sockaddr *)&clientAddr, &clientLen) < 0)
         syserror_die("getsockname failed");
     if (!set_socket_buffer_size(*fd))
@@ -741,11 +746,13 @@ datagram_client_init(int *fd, int domain, struct sockaddr_in *serverAddr)
 static int
 datagram_server_init(int *fd, int domain)
 {
+    int type;
     uint32_t port;
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
 
-    *fd = socket(domain, SOCK_DGRAM, 0);
+    type = (domain == AF_INET_RDS) ? SOCK_SEQPACKET : SOCK_DGRAM;
+    *fd = socket(domain, type, 0);
     if (*fd < 0)
         return syserror("socket failed");
     memset(&addr, 0, len);
@@ -753,7 +760,8 @@ datagram_server_init(int *fd, int domain)
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(Req.port);
     if (bind(*fd, (struct sockaddr *)&addr, len) < 0) {
-        syserror("bind failed");
+        /* syserror("bind failed"); */
+        syserror(bind_error(domain));
         goto err;
     }
     if (getsockname(*fd, (struct sockaddr *)&addr, &len) < 0) {
@@ -770,6 +778,21 @@ datagram_server_init(int *fd, int domain)
 err:
     close(*fd);
     return 0;
+}
+
+
+/*
+ * Return a bind error message.  Once RDS supports INADDR_ANY, this can go
+ * away.  I would fix the code to not use INADDR_ANY except that the RDS code
+ * still appears to be flaky.
+ */
+static char *
+bind_error(int domain)
+{
+    if (domain == AF_INET_RDS && errno == EINVAL)
+        return "INADDR_ANY not implemented in this version of RDS";
+    else
+        return "bind error";
 }
 
 
