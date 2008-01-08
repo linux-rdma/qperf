@@ -1,8 +1,8 @@
 /*
  * qperf - handle socket tests.
  *
- * Copyright (c) 2002-2007 Johann George.  All rights reserved.
- * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2008 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -45,115 +45,86 @@
  * Parameters.
  */
 #define AF_INET_SDP 27                  /* Family for SDP */
-#define AF_INET_RDS 28                  /* Family for RDS */
+
+
+/*
+ * Kinds.
+ */
+typedef enum {
+    K_SCTP,
+    K_SDP,
+    K_TCP,
+    K_UDP,
+} KIND;
+
+char *Kinds[] ={ "SCTP", "SDP", "TCP", "UDP", };
 
 
 /*
  * Function prototypes.
  */
-static char    *bind_error(int domain);
-static void     datagram_client_bw(int domain);
-static void     datagram_client_init(int *fd, int domain,
-                                     struct sockaddr_in *addr);
-static void     datagram_client_lat(int domain);
-static void     datagram_server_bw(int domain);
-static int      datagram_server_init(int *fd, int domain);
-static void     datagram_server_lat(int domain);
+static void     client_init(int *fd, KIND kind);
+static void     datagram_client_bw(KIND kind);
+static void     datagram_client_lat(KIND kind);
+static void     datagram_server_bw(KIND kind);
+static void     datagram_server_init(int *fd, KIND kind);
+static void     datagram_server_lat(KIND kind);
 static uint32_t decode_port(uint32_t *p);
 static void     encode_port(uint32_t *p, uint32_t port);
+static void     get_socket_port(int fd, uint32_t *port);
+static void     getaddrinfo_kind(int serverflag,
+                    KIND kind, int port, struct addrinfo **aipp);
 static void     ip_parameters(long msgSize);
+static char    *kind_name(KIND kind);
 static int      recv_full(int fd, void *ptr, int len);
 static int      send_full(int fd, void *ptr, int len);
-static int      set_socket_buffer_size(int fd);
-static void     socket_client_bw(int domain);
-static void     socket_client_init(int *fd, int domain);
-static void     socket_client_lat(int domain);
-static void     socket_server_bw(int domain);
-static int      socket_server_init(int *fd, int domain);
-static void     socket_server_lat(int domain);
+static void     set_socket_buffer_size(int fd);
+static void     stream_client_bw(KIND kind);
+static void     stream_client_lat(KIND kind);
+static void     stream_server_bw(KIND kind);
+static void     stream_server_init(int *fd, KIND kind);
+static void     stream_server_lat(KIND kind);
 
 
 /*
- * Measure RDS bandwidth (client side).
+ * Measure SCTP bandwidth (client side).
  */
 void
-run_client_rds_bw(void)
-{
-    ip_parameters(8*1024);
-    datagram_client_bw(AF_INET_RDS);
-}
-
-
-/*
- * Measure RDS bandwidth (server side).
- */
-void
-run_server_rds_bw(void)
-{
-    datagram_server_bw(AF_INET_RDS);
-}
-
-
-/*
- * Measure RDS latency (client side).
- */
-void
-run_client_rds_lat(void)
-{
-    ip_parameters(1);
-    datagram_client_lat(AF_INET_RDS);
-}
-
-
-/*
- * Measure RDS latency (server side).
- */
-void
-run_server_rds_lat(void)
-{
-    datagram_server_lat(AF_INET_RDS);
-}
-
-
-/*
- * Measure UDP bandwidth (client side).
- */
-void
-run_client_udp_bw(void)
+run_client_sctp_bw(void)
 {
     ip_parameters(32*1024);
-    datagram_client_bw(AF_INET);
+    stream_client_bw(K_SCTP);
 }
 
 
 /*
- * Measure UDP bandwidth (server side).
+ * Measure SCTP bandwidth (server side).
  */
 void
-run_server_udp_bw(void)
+run_server_sctp_bw(void)
 {
-    datagram_server_bw(AF_INET);
+    stream_server_bw(K_SCTP);
 }
 
 
 /*
- * Measure UDP latency (client side).
+ * Measure SCTP latency (client side).
  */
 void
-run_client_udp_lat(void)
+run_client_sctp_lat(void)
 {
     ip_parameters(1);
-    datagram_client_lat(AF_INET);
+    stream_client_lat(K_SCTP);
 }
 
 
 /*
- * Measure UDP latency (server side).
+ * Measure SCTP latency (server side).
  */
 void
-run_server_udp_lat(void)
+run_server_sctp_lat(void)
 {
-    datagram_server_lat(AF_INET);
+    stream_server_lat(K_SCTP);
 }
 
 
@@ -164,7 +135,7 @@ void
 run_client_sdp_bw(void)
 {
     ip_parameters(64*1024);
-    socket_client_bw(AF_INET_SDP);
+    stream_client_bw(K_SDP);
 }
 
 
@@ -174,7 +145,7 @@ run_client_sdp_bw(void)
 void
 run_server_sdp_bw(void)
 {
-    socket_server_bw(AF_INET_SDP);
+    stream_server_bw(K_SDP);
 }
 
 
@@ -185,7 +156,7 @@ void
 run_client_sdp_lat(void)
 {
     ip_parameters(1);
-    socket_client_lat(AF_INET_SDP);
+    stream_client_lat(K_SDP);
 }
 
 
@@ -195,7 +166,7 @@ run_client_sdp_lat(void)
 void
 run_server_sdp_lat(void)
 {
-    socket_server_lat(AF_INET_SDP);
+    stream_server_lat(K_SDP);
 }
 
 
@@ -206,7 +177,7 @@ void
 run_client_tcp_bw(void)
 {
     ip_parameters(64*1024);
-    socket_client_bw(AF_INET);
+    stream_client_bw(K_TCP);
 }
 
 
@@ -216,7 +187,7 @@ run_client_tcp_bw(void)
 void
 run_server_tcp_bw(void)
 {
-    socket_server_bw(AF_INET);
+    stream_server_bw(K_TCP);
 }
 
 
@@ -227,7 +198,7 @@ void
 run_client_tcp_lat(void)
 {
     ip_parameters(1);
-    socket_client_lat(AF_INET);
+    stream_client_lat(K_TCP);
 }
 
 
@@ -237,23 +208,64 @@ run_client_tcp_lat(void)
 void
 run_server_tcp_lat(void)
 {
-    socket_server_lat(AF_INET);
+    stream_server_lat(K_TCP);
 }
 
 
 /*
- * Measure socket bandwidth (client side).
+ * Measure UDP bandwidth (client side).
+ */
+void
+run_client_udp_bw(void)
+{
+    ip_parameters(32*1024);
+    datagram_client_bw(K_UDP);
+}
+
+
+/*
+ * Measure UDP bandwidth (server side).
+ */
+void
+run_server_udp_bw(void)
+{
+    datagram_server_bw(K_UDP);
+}
+
+
+/*
+ * Measure UDP latency (client side).
+ */
+void
+run_client_udp_lat(void)
+{
+    ip_parameters(1);
+    datagram_client_lat(K_UDP);
+}
+
+
+/*
+ * Measure UDP latency (server side).
+ */
+    void
+run_server_udp_lat(void)
+{
+    datagram_server_lat(K_UDP);
+}
+
+
+/*
+ * Measure stream bandwidth (client side).
  */
 static void
-socket_client_bw(int domain)
+stream_client_bw(KIND kind)
 {
     char *buf;
     int sockFD;
 
-    socket_client_init(&sockFD, domain);
+    client_init(&sockFD, kind);
     buf = qmalloc(Req.msg_size);
-    if (!synchronize())
-        goto err;
+    sync_test();
     while (!Finished) {
         int n = send_full(sockFD, buf, Req.msg_size);
         if (Finished)
@@ -266,9 +278,7 @@ socket_client_bw(int domain)
             LStat.s.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
@@ -277,18 +287,16 @@ err:
 
 
 /*
- * Measure socket bandwidth (server side).
+ * Measure stream bandwidth (server side).
  */
 static void
-socket_server_bw(int domain)
+stream_server_bw(KIND kind)
 {
-    int sockFD;
+    int sockFD = -1;
     char *buf = 0;
 
-    if (!socket_server_init(&sockFD, domain))
-        return;
-    if (!synchronize())
-        goto err;
+    stream_server_init(&sockFD, kind);
+    sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv_full(sockFD, buf, Req.msg_size);
@@ -302,28 +310,26 @@ socket_server_bw(int domain)
             LStat.r.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
-    close(sockFD);
+    if (sockFD >= 0)
+        close(sockFD);
 }
 
 
 /*
- * Measure socket latency (client side).
+ * Measure stream latency (client side).
  */
 static void
-socket_client_lat(int domain)
+stream_client_lat(KIND kind)
 {
     char *buf;
     int sockFD;
 
-    socket_client_init(&sockFD, domain);
+    client_init(&sockFD, kind);
     buf = qmalloc(Req.msg_size);
-    if (!synchronize())
-        goto err;
+    sync_test();
     while (!Finished) {
         int n = send_full(sockFD, buf, Req.msg_size);
         if (Finished)
@@ -347,9 +353,7 @@ socket_client_lat(int domain)
             LStat.r.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
@@ -358,18 +362,16 @@ err:
 
 
 /*
- * Measure socket latency (server side).
+ * Measure stream latency (server side).
  */
 static void
-socket_server_lat(int domain)
+stream_server_lat(KIND kind)
 {
-    int sockFD;
+    int sockFD = -1;
     char *buf = 0;
 
-    if (!socket_server_init(&sockFD, domain))
-        return;
-    if (!synchronize())
-        goto err;
+    stream_server_init(&sockFD, kind);
+    sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv_full(sockFD, buf, Req.msg_size);
@@ -394,9 +396,7 @@ socket_server_lat(int domain)
             LStat.s.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
@@ -404,138 +404,19 @@ err:
 
 
 /*
- * Socket client initialization.
+ * Measure datagram bandwidth (client side).
  */
 static void
-socket_client_init(int *fd, int domain)
-{
-    uint32_t port;
-    struct hostent *host;
-    struct sockaddr_in clientAddr;
-    struct sockaddr_in serverAddr;
-    socklen_t clientLen = sizeof(clientAddr);
-
-    client_send_request();
-    *fd = socket(domain, SOCK_STREAM, 0);
-    if (*fd < 0)
-        syserror_die("socket failed");
-    clientAddr.sin_family = AF_INET;
-    clientAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    clientAddr.sin_port = htons(0);
-    if (bind(*fd, (struct sockaddr *)&clientAddr, clientLen) < 0)
-        syserror_die("bind failed");
-    if (getsockname(*fd, (struct sockaddr *)&clientAddr, &clientLen) < 0)
-        syserror_die("getsockname failed");
-    if (!set_socket_buffer_size(*fd))
-        die();
-
-    host = gethostbyname(ServerName);
-    if (!host)
-        error_die("cannot find machine %s", ServerName);
-    serverAddr.sin_family = AF_INET;
-    if (host->h_length > sizeof(serverAddr.sin_addr))
-        error_die("address too large to handle");
-    memcpy(&serverAddr.sin_addr.s_addr, host->h_addr, host->h_length);
-    if (!recv_mesg(&port, sizeof(port), "port"))
-        die();
-    port = decode_port(&port);
-    debug("sending from %s port %d to %d",
-                                domain == AF_INET_SDP ? "SDP" : "TCP",
-                                            ntohs(clientAddr.sin_port), port);
-    serverAddr.sin_port = htons(port);
-    if (connect(*fd, &serverAddr, sizeof(serverAddr)) < 0)
-        syserror_die("connect failed");
-}
-
-
-/*
- * Socket server initialization.
- */
-static int
-socket_server_init(int *fd, int domain)
-{
-    uint32_t port;
-    int listenFD;
-    struct sockaddr_in addr;
-    socklen_t len = sizeof(addr);
-    int stat = 0;
-    int one = 1;
-
-    listenFD = socket(domain, SOCK_STREAM, 0);
-    if (listenFD < 0)
-        return syserror("socket failed");
-    if (setsockopt(listenFD, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
-        return syserror("failed to reuse address on socket");
-    memset(&addr, 0, len);
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(Req.port);
-    if (bind(listenFD, (struct sockaddr *)&addr, len) < 0) {
-        syserror("bind failed");
-        goto err;
-    }
-    if (getsockname(listenFD, (struct sockaddr *)&addr, &len) < 0) {
-        syserror("getsockname failed");
-        goto err;
-    }
-    port = ntohs(addr.sin_port);
-    if (listen(listenFD, 1) < 0) {
-        syserror("listen failed");
-        goto err;
-    }
-    encode_port(&port, port);
-    if (!send_mesg(&port, sizeof(port), "port"))
-        goto err;
-    len = sizeof(addr);
-    *fd = accept(listenFD, (struct sockaddr *)&addr, &len);
-    if (*fd < 0) {
-        syserror("accept failed");
-        goto err;
-    }
-    debug("accepted connection");
-    if (!set_socket_buffer_size(*fd)) {
-        close(*fd);
-        goto err;
-    }
-    stat = 1;
-err:
-    close(listenFD);
-    return stat;
-}
-
-
-/*
- * Set both the send and receive socket buffer sizes.
- */
-static int
-set_socket_buffer_size(int fd)
-{
-    int size = Req.sock_buf_size;
-
-    if (!size)
-        return 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size)) < 0)
-        return syserror("failed to set send buffer size on socket");
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) < 0)
-        return syserror("failed to set receive buffer size on socket");
-    return 1;
-}
-
-
-static void
-datagram_client_bw(int domain)
+datagram_client_bw(KIND kind)
 {
     char *buf;
     int sockFD;
-    struct sockaddr_in serverAddr;
 
-    datagram_client_init(&sockFD, domain, &serverAddr);
+    client_init(&sockFD, kind);
     buf = qmalloc(Req.msg_size);
-    if (!synchronize())
-        goto err;
+    sync_test();
     while (!Finished) {
-        int n = sendto(sockFD, buf, Req.msg_size, 0,
-                       (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+        int n = write(sockFD, buf, Req.msg_size);
         if (Finished)
             break;
         if (n < 0) {
@@ -546,9 +427,7 @@ datagram_client_bw(int domain)
             LStat.s.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
@@ -556,16 +435,17 @@ err:
 }
 
 
+/*
+ * Measure datagram bandwidth (server side).
+ */
 static void
-datagram_server_bw(int domain)
+datagram_server_bw(KIND kind)
 {
     int sockFD;
     char *buf = 0;
 
-    if (!datagram_server_init(&sockFD, domain))
-        return;
-    if (!synchronize())
-        goto err;
+    datagram_server_init(&sockFD, kind);
+    sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv(sockFD, buf, Req.msg_size, 0);
@@ -579,29 +459,27 @@ datagram_server_bw(int domain)
             LStat.r.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
 }
 
 
+/*
+ * Measure datagram latency (client side).
+ */
 static void
-datagram_client_lat(int domain)
+datagram_client_lat(KIND kind)
 {
     char *buf;
     int sockFD;
-    struct sockaddr_in addr;
 
-    datagram_client_init(&sockFD, domain, &addr);
+    client_init(&sockFD, kind);
     buf = qmalloc(Req.msg_size);
-    if (!synchronize())
-        goto err;
+    sync_test();
     while (!Finished) {
-        int n = sendto(sockFD, buf, Req.msg_size, 0,
-                       (struct sockaddr *)&addr, sizeof(addr));
+        int n = write(sockFD, buf, Req.msg_size);
         if (Finished)
             break;
         if (n < 0) {
@@ -612,7 +490,7 @@ datagram_client_lat(int domain)
             LStat.s.no_msgs++;
         }
 
-        n = recv(sockFD, buf, Req.msg_size, 0);
+        n = read(sockFD, buf, Req.msg_size);
         if (Finished)
             break;
         if (n < 0) {
@@ -623,13 +501,56 @@ datagram_client_lat(int domain)
             LStat.r.no_msgs++;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     free(buf);
     close(sockFD);
     show_results(LATENCY);
+}
+
+
+/*
+ * Measure datagram latency (server side).
+ */
+static void
+datagram_server_lat(KIND kind)
+{
+    int sockfd;
+    char *buf = 0;
+
+    datagram_server_init(&sockfd, kind);
+    sync_test();
+    buf = qmalloc(Req.msg_size);
+    while (!Finished) {
+        struct sockaddr_storage clientAddr;
+        socklen_t clientLen = sizeof(clientAddr);
+        int n = recvfrom(sockfd, buf, Req.msg_size, 0,
+                         (SA *)&clientAddr, &clientLen);
+        if (Finished)
+            break;
+        if (n < 0) {
+            LStat.r.no_errs++;
+            continue;
+        } else {
+            LStat.r.no_bytes += n;
+            LStat.r.no_msgs++;
+        }
+
+        n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&clientAddr, clientLen);
+        if (Finished)
+            break;
+        if (n < 0) {
+            LStat.s.no_errs++;
+            continue;
+        } else {
+            LStat.s.no_bytes += n;
+            LStat.s.no_msgs++;
+        }
+    }
+    stop_test_timer();
+    exchange_results();
+    free(buf);
+    close(sockfd);
 }
 
 
@@ -649,150 +570,191 @@ ip_parameters(long msgSize)
 }
 
 
+/*
+ * Socket client initialization.
+ */
 static void
-datagram_server_lat(int domain)
+client_init(int *fd, KIND kind)
 {
-    int sockFD;
-    char *buf = 0;
+    uint32_t rport;
+    struct addrinfo *ai, *ailist;
 
-    if (!datagram_server_init(&sockFD, domain))
-        goto err;
-    if (!synchronize())
-        goto err;
-    buf = qmalloc(Req.msg_size);
-    while (!Finished) {
-        struct sockaddr_in clientAddr;
-        socklen_t clientLen = sizeof(clientAddr);
-        int n = recvfrom(sockFD, buf, Req.msg_size, 0,
-                         (struct sockaddr *)&clientAddr, &clientLen);
-        if (Finished)
-            break;
-        if (n < 0) {
-            LStat.r.no_errs++;
+    client_send_request();
+    recv_mesg(&rport, sizeof(rport), "port");
+    rport = decode_port(&rport);
+    getaddrinfo_kind(0, kind, rport, &ailist);
+    for (ai = ailist; ai; ai = ai->ai_next) {
+        if (!ai->ai_family)
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
-        }
-
-        n = sendto(sockFD, buf, Req.msg_size, 0,
-                        (struct sockaddr *)&clientAddr, clientLen);
-        if (Finished)
+        *fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (connect(*fd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
             break;
-        if (n < 0) {
-            LStat.s.no_errs++;
-            continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
-        }
+        close(*fd);
     }
-    Successful = 1;
-err:
-    stop_timing();
-    exchange_results();
-    free(buf);
-    close(sockFD);
+    freeaddrinfo(ailist);
+    if (!ai)
+        error(0, "could not make %s connection to server", kind_name(kind));
+    if (Debug) {
+        uint32_t lport;
+        get_socket_port(*fd, &lport);
+        debug("sending from %s port %d to %d", kind_name(kind), lport, rport);
+    }
 }
 
 
 /*
- * Datagram client initialization.
+ * Socket server initialization.
  */
 static void
-datagram_client_init(int *fd, int domain, struct sockaddr_in *serverAddr)
+stream_server_init(int *fd, KIND kind)
 {
-    int type;
     uint32_t port;
-    struct hostent *host;
-    struct sockaddr_in clientAddr;
-    socklen_t clientLen = sizeof(clientAddr);
+    struct addrinfo *ai, *ailist;
+    int listenFD = -1;
 
-    client_send_request();
-    type = (domain == AF_INET_RDS) ? SOCK_SEQPACKET : SOCK_DGRAM;
-    *fd = socket(domain, type, 0);
+    getaddrinfo_kind(1, kind,  Req.port, &ailist);
+    for (ai = ailist; ai; ai = ai->ai_next) {
+        if (!ai->ai_family)
+            continue;
+        listenFD = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (listenFD < 0)
+            continue;
+        setsockopt_one(listenFD, SO_REUSEADDR);
+        if (bind(listenFD, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
+            break;
+        close(listenFD);
+        listenFD = -1;
+    }
+    freeaddrinfo(ailist);
+    if (!ai)
+        error(0, "unable to make %s socket", kind_name(kind));
+    if (listen(listenFD, 1) < 0)
+        error(SYS, "listen failed");
+
+    get_socket_port(listenFD, &port);
+    encode_port(&port, port);
+    send_mesg(&port, sizeof(port), "port");
+    *fd = accept(listenFD, 0, 0);
     if (*fd < 0)
-        syserror_die("socket failed");
-    clientAddr.sin_family = AF_INET;
-    clientAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    clientAddr.sin_port = htons(0);
-    if (bind(*fd, (struct sockaddr *)&clientAddr, clientLen) < 0)
-        /* syserror_die("bind failed"); */
-        syserror_die(bind_error(domain));
-    if (getsockname(*fd, (struct sockaddr *)&clientAddr, &clientLen) < 0)
-        syserror_die("getsockname failed");
-    if (!set_socket_buffer_size(*fd))
-        die();
-
-    host = gethostbyname(ServerName);
-    if (!host)
-        error_die("cannot find machine %s", ServerName);
-    serverAddr->sin_family = AF_INET;
-    if (host->h_length > sizeof(serverAddr->sin_addr))
-        error_die("address too large to handle");
-    memcpy(&serverAddr->sin_addr.s_addr, host->h_addr, host->h_length);
-    if (!recv_mesg(&port, sizeof(port), "port"))
-        die();
-    port = decode_port(&port);
-    debug("sending from %s port %d to %d",
-          domain == AF_INET ? "UDP" : "RDS", ntohs(clientAddr.sin_port), port);
-    serverAddr->sin_port = htons(port);
+        error(SYS, "accept failed");
+    debug("accepted %s connection", kind_name(kind));
+    set_socket_buffer_size(*fd);
+    close(listenFD);
 }
 
 
 /*
  * Datagram server initialization.
  */
-static int
-datagram_server_init(int *fd, int domain)
+static void
+datagram_server_init(int *fd, KIND kind)
 {
-    int type;
     uint32_t port;
-    struct sockaddr_in addr;
-    socklen_t len = sizeof(addr);
+    struct addrinfo *ai, *ailist;
+    int sockfd = -1;
 
-    type = (domain == AF_INET_RDS) ? SOCK_SEQPACKET : SOCK_DGRAM;
-    *fd = socket(domain, type, 0);
-    if (*fd < 0)
-        return syserror("socket failed");
-    memset(&addr, 0, len);
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(Req.port);
-    if (bind(*fd, (struct sockaddr *)&addr, len) < 0) {
-        /* syserror("bind failed"); */
-        syserror(bind_error(domain));
-        goto err;
+    getaddrinfo_kind(1, kind, Req.port, &ailist);
+    for (ai = ailist; ai; ai = ai->ai_next) {
+        if (!ai->ai_family)
+            continue;
+        sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (sockfd < 0)
+            continue;
+        setsockopt_one(sockfd, SO_REUSEADDR);
+        if (bind(sockfd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
+            break;
+        close(sockfd);
+        sockfd = -1;
     }
-    if (getsockname(*fd, (struct sockaddr *)&addr, &len) < 0) {
-        syserror("getsockname failed");
-        goto err;
-    }
-    if (!set_socket_buffer_size(*fd))
-        goto err;
-    encode_port(&port, ntohs(addr.sin_port));
-    if (!send_mesg(&port, sizeof(port), "port"))
-        goto err;
-    return 1;
+    freeaddrinfo(ailist);
+    if (!ai)
+        error(0, "unable to make %s socket", kind_name(kind));
 
-err:
-    close(*fd);
-    return 0;
+    set_socket_buffer_size(sockfd);
+    get_socket_port(sockfd, &port);
+    encode_port(&port, port);
+    send_mesg(&port, sizeof(port), "port");
+    *fd = sockfd;
 }
 
 
 /*
- * Return a bind error message.  Once RDS supports INADDR_ANY, this can go
- * away.  I would fix the code to not use INADDR_ANY except that the RDS code
- * still appears to be flaky.
+ * A version of getaddrinfo that takes a numeric port and prints out an error
+ * on failure.
  */
-static char *
-bind_error(int domain)
+static void
+getaddrinfo_kind(int serverflag, KIND kind, int port, struct addrinfo **aipp)
 {
-    if (domain == AF_INET_RDS && errno == EINVAL)
-        return "INADDR_ANY not implemented in this version of RDS";
-    else
-        return "bind error";
+    int stat;
+    char *service;
+    struct addrinfo *aip;
+    struct addrinfo hints ={
+        .ai_flags    = AI_NUMERICSERV,
+        .ai_family   = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM
+    };
+
+    if (serverflag)
+        hints.ai_flags |= AI_PASSIVE;
+    if (kind == K_UDP)
+        hints.ai_socktype = SOCK_DGRAM;
+
+    service = qasprintf("%d", port);
+    stat = getaddrinfo(serverflag ? 0 : ServerName, service, &hints, aipp);
+    free(service);
+    if (stat != SUCCESS0)
+        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
+    for (aip = *aipp; aip; aip = aip->ai_next) {
+        if (kind == K_SDP) {
+            if (aip->ai_family == AF_INET || aip->ai_family == AF_INET6)
+                aip->ai_family = AF_INET_SDP;
+            else
+                aip->ai_family = 0;
+        } else if (kind == K_SCTP) {
+            if (aip->ai_protocol == IPPROTO_TCP)
+                aip->ai_protocol = IPPROTO_SCTP;
+            else
+                aip->ai_family = 0;
+        }
+    }
+}
+
+
+/*
+ * Set both the send and receive socket buffer sizes.
+ */
+static void
+set_socket_buffer_size(int fd)
+{
+    int size = Req.sock_buf_size;
+
+    if (!size)
+        return;
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size)) < 0)
+        error(SYS, "Failed to set send buffer size on socket");
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) < 0)
+        error(SYS, "Failed to set receive buffer size on socket");
+}
+
+
+/*
+ * Given an open socket, return the port associated with it.  There must be a
+ * more efficient way to do this that is portable.
+ */
+static void
+get_socket_port(int fd, uint32_t *port)
+{
+    char p[NI_MAXSERV];
+    struct sockaddr_storage sa;
+    socklen_t salen = sizeof(sa);
+
+    if (getsockname(fd, (SA *)&sa, &salen) < 0)
+        error(SYS, "getsockname failed");
+    if (getnameinfo((SA *)&sa, salen, 0, 0, p, sizeof(p), NI_NUMERICSERV) < 0)
+        error(SYS, "getnameinfo failed");
+    *port = atoi(p);
+    if (!port)
+        error(0, "invalid port");
 }
 
 
@@ -857,4 +819,17 @@ decode_port(uint32_t *p)
 {
     dec_init(p);
     return dec_int(sizeof(uint32_t));
+}
+
+
+/*
+ * Return the name of a transport kind.
+ */
+static char *
+kind_name(KIND kind)
+{
+    if (kind < 0 || kind >= cardof(Kinds))
+        return "unknown type";
+    else
+        return Kinds[kind];
 }

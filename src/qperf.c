@@ -2,8 +2,8 @@
  * qperf - main.
  * Measure socket and RDMA performance.
  *
- * Copyright (c) 2002-2007 Johann George.  All rights reserved.
- * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2008 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -41,7 +41,6 @@
 #include <sched.h>
 #include <stdio.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -65,9 +64,8 @@
 #define VER_MIN  2                      /* Minor version */
 #define VER_INC  0                      /* Incremental version */
 #define LISTENQ  5                      /* Size of listen queue */
+#define ERRTIME  3                      /* Error timeout in seconds */
 #define BUFSIZE  1024                   /* Size of buffers */
-#define SYNCMESG "SyN"                  /* Synchronize message */
-#define SYNCSIZE sizeof(SYNCMESG)       /* Size of synchronize message */
 
 
 /*
@@ -153,7 +151,6 @@ static long     arg_long(char ***argvp);
 static long     arg_size(char ***argvp);
 static char    *arg_strn(char ***argvp);
 static long     arg_time(char ***argvp);
-static void     bug_die(char *fmt, ...);
 static void     calc_node(RESN *resn, STAT *stat);
 static void     calc_results(void);
 static void     client(TEST *test);
@@ -170,7 +167,6 @@ static TEST    *find_test(char *name);
 static OPTION  *find_option(char *name);
 static void     get_conf(CONF *conf);
 static void     get_cpu(CONF *conf);
-static double   get_seconds(void);
 static void     get_times(CLOCK timex[T_N]);
 static void     initialize(void);
 static void     init_lstat(void);
@@ -190,29 +186,28 @@ static void     place_any(char *pref, char *name, char *unit, char *data,
                           char *altn);
 static void     place_show(void);
 static void     place_val(char *pref, char *name, char *unit, double value);
-static char    *qasprintf(char *fmt, ...);
-static int      recv_sync(void);
+static void     remotefd_close(void);
+static void     remotefd_setup(void);
 static void     run_client_conf(void);
 static void     run_client_quit(void);
 static void     run_server_conf(void);
 static void     run_server_quit(void);
-static int      send_recv_mesg(int sr, char *item, int fd, char *buf, int len);
-static int      send_sync(void);
 static void     server(void);
 static void     server_listen(void);
 static int      server_recv_request(void);
 static void     set_affinity(void);
-static int      set_nonblock(int fd);
 static void     set_signals(void);
 static void     show_debug(void);
 static void     show_info(MEASURE measure);
 static void     show_rest(void);
 static void     show_used(void);
 static void     sig_alrm(int signo, siginfo_t *siginfo, void *ucontext);
+static void     sig_urg(int signo, siginfo_t *siginfo, void *ucontext);
 static char    *skip_colon(char *s);
-static void     start_timing(int seconds);
+static void     start_test_timer(int seconds);
 static void     strncopy(char *d, char *s, int n);
 static int      verbose(int type, double value);
+static void     version_error(void);
 static void     view_band(int type, char *pref, char *name, double value);
 static void     view_cost(int type, char *pref, char *name, double value);
 static void     view_cpus(int type, char *pref, char *name, double value);
@@ -235,14 +230,9 @@ static int      ServerTimeout   = 5;
  * Static variables.
  */
 static REQ      RReq;
-static int      Debug;
-static uint8_t *DecodePtr;
-static int      ExitStatus;
-static uint8_t *EncodePtr;
 static STAT     IStat;
 static int      ListenFD;
 static int      ProcStatFD;
-static int      RemoteFD;
 static STAT     RStat;
 static int      ShowIndex;
 static SHOW     ShowTable[256];
@@ -258,13 +248,16 @@ static int      Wait;
 /*
  * Global variables.
  */
-RES             Res;
-REQ             Req;
-STAT            LStat;
-char           *TestName;
-char           *ServerName;
-int             Successful;
-volatile int    Finished;
+RES          Res;
+REQ          Req;
+STAT         LStat;
+char        *TestName;
+char        *ServerName;
+SS           ServerAddr;
+int          ServerAddrLen;
+int          RemoteFD;
+int          Debug;
+volatile int Finished;
 
 
 /*
@@ -437,6 +430,8 @@ TEST Tests[] ={
     test(quit),
     test(rds_bw),
     test(rds_lat),
+    test(sctp_bw),
+    test(sctp_lat),
     test(sdp_bw),
     test(sdp_lat),
     test(tcp_bw),
@@ -475,7 +470,7 @@ main(int argc, char *argv[])
     initialize();
     set_signals();
     do_args(&argv[1]);
-    return ExitStatus;
+    return 0;
 }
 
 
@@ -497,12 +492,13 @@ init_vars(void)
 {
     int i;
 
+    RemoteFD = -1;
     for (i = 0; i < P_N; ++i)
         if (ParInfo[i].index != i)
-            bug_die("initialize: ParInfo: out of order: %d", i);
+            error(BUG, "initialize: ParInfo: out of order: %d", i);
     ProcStatFD = open("/proc/stat", 0);
     if (ProcStatFD < 0)
-        syserror_die("Cannot open /proc/stat");
+        error(SYS, "cannot open /proc/stat");
     IStat.no_cpus = sysconf(_SC_NPROCESSORS_ONLN);
     IStat.no_ticks = sysconf(_SC_CLK_TCK);
 }
@@ -553,9 +549,16 @@ cmpsub(char *s2, char *s1)
 static void
 set_signals(void)
 {
-    struct sigaction alrm ={ .sa_sigaction = sig_alrm };
-    sigaction(SIGALRM, &alrm, 0);
-    sigaction(SIGPIPE, &alrm, 0);
+    struct sigaction act ={
+        .sa_sigaction = sig_alrm,
+        .sa_flags = SA_SIGINFO
+    };
+
+    sigaction(SIGALRM, &act, 0);
+    sigaction(SIGPIPE, &act, 0);
+
+    act.sa_sigaction = sig_urg;
+    sigaction(SIGURG, &act, 0);
 }
 
 
@@ -566,6 +569,16 @@ static void
 sig_alrm(int signo, siginfo_t *siginfo, void *ucontext)
 {
     set_finished();
+}
+
+
+/*
+ * Called when a TCP/IP out-of-band message is received.
+ */
+static void
+sig_urg(int signo, siginfo_t *siginfo, void *ucontext)
+{
+    urgent_error();
 }
 
 
@@ -583,7 +596,7 @@ do_args(char *args[])
         if (arg[0] == '-') {
             OPTION *option = find_option(arg);
             if (!option)
-                error_die("%s: bad option; try qperf --help", arg);
+                error(0, "%s: bad option; try qperf --help", arg);
             if (!option->server_valid)
                 isClient = 1;
             option->func(option, &args);
@@ -594,7 +607,7 @@ do_args(char *args[])
             else {
                 TEST *p = find_test(arg);
                 if (!p)
-                    error_die("%s: bad test; try qperf --help", arg);
+                    error(0, "%s: bad test; try qperf --help", arg);
                 client(p);
                 testSpecified = 1;
             }
@@ -605,11 +618,11 @@ do_args(char *args[])
         server();
     else if (!testSpecified) {
         if (!ServerName)
-            error_die("You used a client only option but did not specify the "
+            error(0, "you used a client only option but did not specify the "
                       "server name.\nDo you want to be a client or server?");
         if (find_test(ServerName))
-            error_die("Must specify host name first; try qperf --help");
-        error_die("Must specify a test type; try qperf --help");
+            error(0, "must specify host name first; try qperf --help");
+        error(0, "must specify a test type; try qperf --help");
     }
 }
 
@@ -659,7 +672,7 @@ opt_help(OPTION *option, char ***argvp)
         if (streq(*usage, category))
             break;
     if (!*usage)
-        error_die("Cannot find help category %s; try: qperf --help");
+        error(0, "cannot find help category %s; try: qperf --help");
     printf("%s", usage[1]);
     exit(0);
 }
@@ -745,7 +758,7 @@ opt_misc(OPTION *option, char ***argvp)
         VerboseUsed = 2;
         break;
     default:
-        bug_die("opt_misc: unknown argument: %s", option->name);
+        error(BUG, "opt_misc: unknown argument: %s", option->name);
     }
     *argvp += 1;
 }
@@ -812,7 +825,8 @@ opt_check(void)
     for (p = ParInfo; p < r; ++p) {
         if (p->used || !p->set)
             continue;
-        error("warning: %s set but not used in test %s", p->name, TestName);
+        error(RET, "warning: %s set but not used in test %s",
+                                                        p->name, TestName);
         for (q = p+1; q < r; ++q)
             if (q->set && q->name == p->name)
                 q->set = 0;
@@ -831,12 +845,12 @@ arg_long(char ***argvp)
     long l;
 
     if (!argv[1])
-        error_die("Missing argument to %s", argv[0]);
+        error(0, "missing argument to %s", argv[0]);
     l = strtol(argv[1], &p, 10);
     if (p[0] != '\0')
-        error_die("Bad argument: %s", argv[1]);
+        error(0, "bad argument: %s", argv[1]);
     if (l < 0)
-        error_die("%s requires a non-negative number", argv[0]);
+        error(0, "%s requires a non-negative number", argv[0]);
     *argvp += 2;
     return l;
 }
@@ -854,10 +868,10 @@ arg_size(char ***argvp)
     char **argv = *argvp;
 
     if (!argv[1])
-        error_die("Missing argument to %s", argv[0]);
+        error(0, "missing argument to %s", argv[0]);
     d = strtold(argv[1], &p);
     if (d < 0)
-        error_die("%s requires a non-negative number", argv[0]);
+        error(0, "%s requires a non-negative number", argv[0]);
 
     if (p[0] == '\0')
         l = d;
@@ -875,7 +889,7 @@ arg_size(char ***argvp)
         else if (streq(p, "gib") || streq(p, "G"))
             l = (long)(d * (1024 * 1024 * 1024));
         else
-            error_die("Bad argument: %s", argv[1]);
+            error(0, "bad argument: %s", argv[1]);
     }
     *argvp += 2;
     return l;
@@ -890,7 +904,7 @@ arg_strn(char ***argvp)
 {
     char **argv = *argvp;
     if (!argv[1])
-        error_die("Missing argument to %s", argv[0]);
+        error(0, "missing argument to %s", argv[0]);
     *argvp += 2;
     return argv[1];
 }
@@ -908,17 +922,17 @@ arg_time(char ***argvp)
     long l = 0;
     char **argv = *argvp;
     if (!argv[1])
-        error_die("Missing argument to %s", argv[0]);
+        error(0, "missing argument to %s", argv[0]);
     d = strtold(argv[1], &p);
     if (d < 0)
-        error_die("%s requires a non-negative number", argv[0]);
+        error(0, "%s requires a non-negative number", argv[0]);
 
     if (p[0] == '\0')
         l = (long)d;
     else {
         int u = *p;
         if (p[1] != '\0')
-            error_die("Bad argument: %s", argv[1]);
+            error(0, "bad argument: %s", argv[1]);
         if (u == 's' || u == 'S')
             l = (long)d;
         else if (u == 'm' || u == 'M')
@@ -928,7 +942,7 @@ arg_time(char ***argvp)
         else if (u == 'd' || u == 'D')
             l = (long)(d * (60 * 60 * 24));
         else
-            error_die("Bad argument: %s", argv[1]);
+            error(0, "bad argument: %s", argv[1]);
     }
     *argvp += 2;
     return l;
@@ -969,7 +983,7 @@ setp_str(char *name, PAR_INDEX index, char *s)
     if (!p)
         return;
     if (strlen(s) >= STRSIZE)
-        error_die("%s: too long", s);
+        error(0, "%s: too long", s);
     strcpy(p->ptr, s);
 }
 
@@ -1027,7 +1041,7 @@ par_info(PAR_INDEX index)
     PAR_INFO *p = &ParInfo[index];
 
     if (index != p->index)
-        bug_die("par_info: table out of order: %d != %d", index, p-index);
+        error(BUG, "par_info: table out of order: %d != %d", index, p-index);
     return p;
 }
 
@@ -1038,58 +1052,72 @@ par_info(PAR_INDEX index)
 static void
 server(void)
 {
-    pid_t pid;
-
     server_listen();
     for (;;) {
+        REQ req;
+        pid_t pid;
         TEST *test;
 
         debug("waiting for request");
         if (!server_recv_request())
             continue;
-        if (Req.ver_maj != VER_MAJ || Req.ver_min != VER_MIN) {
-            int h_maj = Req.ver_maj;
-            int h_min = Req.ver_min;
-            int h_inc = Req.ver_inc;
-            int l_maj = VER_MAJ;
-            int l_min = VER_MIN;
-            int l_inc = VER_INC;
-            char *msg = "upgrade %s from %d.%d.%d to %d.%d.%d";
-            char *low = "client";
-
-            if (l_maj > h_maj || (l_maj == h_maj && l_min > h_min)) {
-                h_maj = VER_MAJ;
-                h_min = VER_MIN;
-                h_inc = VER_INC;
-                l_maj = Req.ver_maj;
-                l_min = Req.ver_min;
-                l_inc = Req.ver_inc;
-                low   = "server";
-            }
-            error(msg, low, l_maj, l_min, l_inc, h_maj, h_min, h_inc);
+        pid = fork();
+        if (pid < 0) {
+            error(SYS|RET, "fork failed");
             continue;
         }
-        if (Req.req_index >= cardof(Tests)) {
-            error("server: bad request index: %d", Req.req_index);
+        if (pid > 0) {
+            remotefd_close();
+            waitpid(pid, 0, 0);
             continue;
         }
+        remotefd_setup();
+        recv_mesg(&req, sizeof(req), "request data");
+        dec_init(&req);
+        dec_req(&Req);
+        if (Req.ver_maj != VER_MAJ || Req.ver_min != VER_MIN)
+            version_error();
+        if (Req.req_index >= cardof(Tests))
+            error(0, "bad request index: %d", Req.req_index);
         test = &Tests[Req.req_index];
         TestName = test->name;
         debug("request is %s", TestName);
-        pid = fork();
-        if (pid == 0) {
-            init_lstat();
-            Finished = 0;
-            Successful = 0;
-            set_affinity();
-            (test->server)();
-            stop_timing();
-            exit(0);
-        } else
-            waitpid(pid, 0, 0);
-        close(RemoteFD);
+        init_lstat();
+        Finished = 0;
+        set_affinity();
+        (test->server)();
+        stop_test_timer();
+        exit(0);
     }
     close(ListenFD);
+}
+
+
+/*
+ * Print out a version error.
+ */
+static void
+version_error(void)
+{
+    int h_maj = Req.ver_maj;
+    int h_min = Req.ver_min;
+    int h_inc = Req.ver_inc;
+    int l_maj = VER_MAJ;
+    int l_min = VER_MIN;
+    int l_inc = VER_INC;
+    char *msg = "upgrade qperf on %s from %d.%d.%d to %d.%d.%d";
+    char *low = "client";
+
+    if (l_maj > h_maj || (l_maj == h_maj && l_min > h_min)) {
+        h_maj = VER_MAJ;
+        h_min = VER_MIN;
+        h_inc = VER_INC;
+        l_maj = Req.ver_maj;
+        l_min = Req.ver_min;
+        l_inc = Req.ver_inc;
+        low   = "server";
+    }
+    error(0, msg, low, l_maj, l_min, l_inc, h_maj, h_min, h_inc);
 }
 
 
@@ -1099,44 +1127,35 @@ server(void)
 static void
 server_listen(void)
 {
-    int stat;
-    char *service;
-    struct addrinfo *r;
-    struct addrinfo *res;
+    struct addrinfo *ai, *ailist;
     struct addrinfo hints ={
-        .ai_flags       = AI_PASSIVE,
-        .ai_family      = AF_UNSPEC,
-        .ai_socktype    = SOCK_STREAM
+        .ai_flags    = AI_PASSIVE | AI_NUMERICSERV,
+        .ai_family   = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM
     };
+    char *service = qasprintf("%d", ListenPort);
+    int stat = getaddrinfo(0, service, &hints, &ailist);
 
-    service = qasprintf("%d", ListenPort);
-    stat = getaddrinfo(0, service, &hints, &res);
     if (stat != SUCCESS0)
-        error_die("getaddrinfo failed: %s", gai_strerror(stat));
+        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
     free(service);
 
-    ListenFD = -1;
-    for (r = res; r; r = r->ai_next) {
-        ListenFD = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
-        if (ListenFD >= 0) {
-            int one = 1;
-            stat = setsockopt(ListenFD, SOL_SOCKET, SO_REUSEADDR,
-                                                        &one, sizeof(one));
-            if (stat < 0)
-                syserror_die("setsockopt failed");
-            if (bind(ListenFD, r->ai_addr, r->ai_addrlen) == SUCCESS0)
-                break;
-            close(ListenFD);
-            ListenFD = -1;
-        }
+    for (ai = ailist; ai; ai = ai->ai_next) {
+        ListenFD = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (ListenFD < 0)
+            continue;
+        setsockopt_one(ListenFD, SO_REUSEADDR);
+        if (bind(ListenFD, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
+            break;
+        close(ListenFD);
     }
-    freeaddrinfo(res);
-    if (ListenFD < 0)
-        error_die("Unable to bind to listen port");
+    freeaddrinfo(ailist);
+    if (!ai)
+        error(0, "unable to bind to listen port");
 
     Req.timeout = ServerTimeout;
     if (listen(ListenFD, LISTENQ) < 0)
-        syserror_die("listen failed");
+        error(SYS, "listen failed");
 }
 
 
@@ -1146,25 +1165,14 @@ server_listen(void)
 static int
 server_recv_request(void)
 {
-    REQ req;
     socklen_t clientLen;
     struct sockaddr_in clientAddr;
 
     clientLen = sizeof(clientAddr);
     RemoteFD = accept(ListenFD, (struct sockaddr *)&clientAddr, &clientLen);
     if (RemoteFD < 0)
-        return syserror("accept failed");
-    if (!set_nonblock(RemoteFD))
-        goto err;
-    if (!recv_mesg(&req, sizeof(req), "request data"))
-        goto err;
-    dec_init(&req);
-    dec_req(&Req);
+        return error(SYS|RET, "accept failed");
     return 1;
-
-err:
-    close(RemoteFD);
-    return 0;
 }
 
 
@@ -1199,11 +1207,8 @@ client(TEST *test)
     init_lstat();
     printf("%s:\n", TestName);
     Finished = 0;
-    Successful = 0;
     (*test->client)();
-    close(RemoteFD);
-    if (!Successful)
-        ExitStatus = 1;
+    remotefd_close();
     place_show();
 }
 
@@ -1227,20 +1232,22 @@ client_send_request(void)
     service = qasprintf("%d", ListenPort);
     stat = getaddrinfo(ServerName, service, &hints, &res);
     if (stat != SUCCESS0)
-        error_die("getaddrinfo failed: %s", gai_strerror(stat));
+        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
     free(service);
 
     RemoteFD = -1;
     if (Wait)
-        start_timing(Wait);
+        start_test_timer(Wait);
     for (;;) {
         for (r = res; r; r = r->ai_next) {
             RemoteFD = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
             if (RemoteFD >= 0) {
-                if (connect(RemoteFD, r->ai_addr, r->ai_addrlen) == SUCCESS0)
+                if (connect(RemoteFD, r->ai_addr, r->ai_addrlen) == SUCCESS0) {
+                    ServerAddrLen = r->ai_addrlen;
+                    memcpy(&ServerAddr, r->ai_addr, ServerAddrLen);
                     break;
-                close(RemoteFD);
-                RemoteFD = -1;
+                }
+                remotefd_close();
             }
         }
         if (RemoteFD >= 0 || !Wait || Finished)
@@ -1248,52 +1255,40 @@ client_send_request(void)
         sleep(1);
     }
     if (Wait)
-        stop_timing();
+        stop_test_timer();
     freeaddrinfo(res);
     if (RemoteFD < 0)
-        error_die("Failed to connect");
-    if (!set_nonblock(RemoteFD))
-        die();
+        error(0, "failed to connect");
+    remotefd_setup();
     enc_init(&req);
     enc_req(&RReq);
-    if (!send_mesg(&req, sizeof(req), "request data"))
-        die();
+    send_mesg(&req, sizeof(req), "request data");
 }
 
 
 /*
- * Set a file descriptor to non-blocking.
+ * Configure the remote file descriptor.
  */
-static int
-set_nonblock(int fd)
+static void
+remotefd_setup(void)
 {
     int one = 1;
-    if (ioctl(fd, FIONBIO, &one) < 0)
-        return syserror("failed to set to non-blocking");
-    return 1;
+    if (ioctl(RemoteFD, FIONBIO, &one) < 0)
+        error(SYS, "ioctl FIONBIO failed");
+    if (fcntl(RemoteFD, F_SETOWN, getpid()) < 0)
+        error(SYS, "fcntl F_SETOWN failed");
 }
 
 
 /*
- * Synchronize the client and server.
+ * Close the remote file descriptor.
+ * Set a file descriptor to non-blocking.
  */
-int
-synchronize(void)
+static void
+remotefd_close(void)
 {
-    if (is_client()) {
-        if (!send_sync())
-            return 0;
-        if (!recv_sync())
-            return 0;
-    } else {
-        if (!recv_sync())
-            return 0;
-        if (!send_sync())
-            return 0;
-    }
-    debug("sync completed");
-    start_timing(Req.time);
-    return 1;
+    close(RemoteFD);
+    RemoteFD = -1;
 }
 
 
@@ -1307,133 +1302,17 @@ exchange_results(void)
 {
     STAT stat;
 
-    if (!Successful)
-        return;
-    Successful = 0;
     if (is_client()) {
-        if (!recv_mesg(&stat, sizeof(stat), "results"))
-            return;
+        recv_mesg(&stat, sizeof(stat), "results");
         dec_init(&stat);
         dec_stat(&RStat);
-        if (!send_sync())
-            return;
+        send_sync("results");
     } else {
         enc_init(&stat);
         enc_stat(&LStat);
-        if (!send_mesg(&stat, sizeof(stat), "results"))
-            return;
-        if (!recv_sync())
-            return;
+        send_mesg(&stat, sizeof(stat), "results");
+        recv_sync("results");
     }
-    Successful = 1;
-}
-
-
-/*
- * Send a synchronize message.
- */
-static int
-send_sync(void)
-{
-    return send_mesg(SYNCMESG, SYNCSIZE, "sync");
-}
-
-
-/*
- * Receive a synchronize message.
- */
-static int
-recv_sync(void)
-{
-    char data[SYNCSIZE];
-
-    if (!recv_mesg(data, sizeof(data), "sync"))
-        return 0;
-    if (memcmp(data, SYNCMESG, SYNCSIZE) != SUCCESS0)
-        return error("sync failure: data does not match");
-    return 1;
-}
-
-
-/*
- * Send a message to the client.
- */
-int
-send_mesg(void *ptr, int len, char *item)
-{
-    debug("sending %s", item);
-    return send_recv_mesg('s', item, RemoteFD, ptr, len);
-}
-
-
-/*
- * Receive a response from the server.
- */
-int
-recv_mesg(void *ptr, int len, char *item)
-{
-    debug("waiting for %s", item);
-    return send_recv_mesg('r', item, RemoteFD, ptr, len);
-}
-
-
-/*
- * Send or receive a message to a file descriptor timing out after a certain
- * amount of time.
- */
-static int
-send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
-{
-    typedef ssize_t (IO)(int fd, void *buf, size_t count);
-    double  etime;
-    fd_set *fdset;
-    fd_set  rfdset;
-    fd_set  wfdset;
-    char   *action;
-    IO     *func;
-
-    if (sr == 'r') {
-        func = (IO *)read;
-        fdset = &rfdset;
-        action = "receive";
-    } else {
-        func = (IO *)write;
-        fdset = &wfdset;
-        action = "send";
-    }
-
-    etime = get_seconds() + Req.timeout;
-    while (len) {
-        int n;
-        double time;
-        struct timeval timeval;
-
-        errno = 0;
-        time = etime - get_seconds();
-        if (time <= 0)
-            return error("failed to %s %s: timed out", action, item);
-        n = time += 1.0 / (1000*1000);
-        timeval.tv_sec  = n;
-        timeval.tv_usec = (time-n) * 1000*1000;
-
-        FD_ZERO(&rfdset);
-        FD_ZERO(&wfdset);
-        FD_SET(fd, fdset);
-        if (select(fd+1, &rfdset, &wfdset, 0, &timeval) < 0)
-            return syserror("failed to %s %s: select failed", action, item);
-        if (!FD_ISSET(fd, fdset))
-            continue;
-        n = func(fd, buf, len);
-        if (n < 0)
-            return syserror("failed to %s %s", action, item);
-        if (n == 0) {
-            char *side = is_client() ? "server" : "client";
-            return syserror("failed to %s %s: %s not responding",
-                                                        action, item, side);
-        }
-        len -= n;
-    }
-    return 1;
 }
 
 
@@ -1457,8 +1336,7 @@ run_client_conf(void)
     CONF rconf;
 
     client_send_request();
-    if (!recv_mesg(&rconf, sizeof(rconf), "configuration"))
-        return;
+    recv_mesg(&rconf, sizeof(rconf), "configuration");
     get_conf(&lconf);
     view_strn('a', "", "loc_node",  lconf.node);
     view_strn('a', "", "loc_cpu",   lconf.cpu);
@@ -1517,7 +1395,7 @@ get_cpu(CONF *conf)
     int mixed = 0;
     FILE *fp = fopen("/proc/cpuinfo", "r");
     if (!fp)
-        error_die("Cannot open /proc/cpuinfo");
+        error(0, "cannot open /proc/cpuinfo");
     cpu[0] = '\0';
     mhz[0] = '\0';
     while (fgets(buf, sizeof(buf), fp)) {
@@ -1610,7 +1488,7 @@ run_client_quit(void)
 {
     opt_check();
     client_send_request();
-    synchronize();
+    sync_test();
     exit(0);
 }
 
@@ -1624,17 +1502,28 @@ run_server_quit(void)
 {
     char buf[1];
 
-    synchronize();
+    sync_test();
     read(RemoteFD, buf, sizeof(buf));
     exit(0);
 }
 
 
 /*
- * Start timing.
+ * Synchronize the client and server.
+ */
+void
+sync_test(void)
+{
+    synchronize("test");
+    start_test_timer(Req.time);
+}
+
+
+/*
+ * Start test timer.
  */
 static void
-start_timing(int seconds)
+start_test_timer(int seconds)
 {
     struct itimerval itimerval = {{0}};
 
@@ -1661,7 +1550,7 @@ start_timing(int seconds)
  * sent or arrive in order not to cheat.
  */
 void
-stop_timing(void)
+stop_test_timer(void)
 {
     struct itimerval itimerval = {{0}};
 
@@ -1704,9 +1593,6 @@ calc_results(void)
     double remTime;
     double midTime;
     double gB = 1000 * 1000 * 1000;
-
-    if (!Successful)
-        return;
 
     add_ustat(&LStat.s, &RStat.rem_s);
     add_ustat(&LStat.r, &RStat.rem_r);
@@ -1783,29 +1669,6 @@ left_to_send(long *sentp, int room)
 
 
 /*
- * Touch data.
- */
-void
-touch_data(void *p, int n)
-{
-    uint64_t a;
-    volatile uint64_t *p64 = p;
-
-    while (n >= sizeof(*p64)) {
-        a = *p64++;
-        n -= sizeof(*p64);
-    }
-    if (n) {
-        volatile uint8_t *p8 = (uint8_t *)p64;
-        while (n >= sizeof(*p8)) {
-            a = *p8++;
-            n -= sizeof(*p8);
-        }
-    }
-}
-
-
-/*
  * Combine statistics that the remote node kept track of with those that the
  * local node kept.
  */
@@ -1866,8 +1729,6 @@ calc_node(RESN *resn, STAT *stat)
 static void
 show_info(MEASURE measure)
 {
-    if (!Successful)
-        return;
     if (measure == LATENCY) {
         view_time('a', "", "latency", Res.latency);
         view_rate('s', "", "msg_rate", Res.msg_rate);
@@ -2347,7 +2208,7 @@ verbose(int type, double value)
     case 'S': return VerboseStat >= 2;
     case 'T': return VerboseTime >= 2;
     case 'U': return VerboseUsed >= 2;
-    default:  bug_die("verbose: bad type: %c (%o)", type, type);
+    default:  error(BUG, "verbose: bad type: %c (%o)", type, type);
     }
     return 0;
 }
@@ -2389,7 +2250,7 @@ place_any(char *pref, char *name, char *unit, char *data, char *altn)
 {
     SHOW *show = &ShowTable[ShowIndex++];
     if (ShowIndex > cardof(ShowTable))
-        bug_die("Need to increase size of ShowTable");
+        error(BUG, "need to increase size of ShowTable");
     show->pref = pref;
     show->name = name;
     show->unit = unit;
@@ -2466,7 +2327,7 @@ set_affinity(void)
     CPU_ZERO(&set);
     CPU_SET(a-1, &set);
     if (sched_setaffinity(0, sizeof(set), &set) < 0)
-        syserror_die("Cannot set processor affinity (cpu %d)", a-1);
+        error(SYS, "cannot set processor affinity (cpu %d)", a-1);
 }
 
 
@@ -2591,75 +2452,6 @@ dec_ustat(USTAT *host)
 
 
 /*
- * Initialize encode pointer.
- */
-void
-enc_init(void *p)
-{
-    EncodePtr = p;
-}
-
-
-/*
- * Initialize decode pointer.
- */
-void
-dec_init(void *p)
-{
-    DecodePtr = p;
-}
-
-
-/*
- * Encode a string.
- */
-void
-enc_str(char *s, int n)
-{
-    memcpy(EncodePtr, s, n);
-    EncodePtr += n;
-}
-
-
-/*
- * Decode a string.
- */
-void
-dec_str(char *s, int  n)
-{
-    memcpy(s, DecodePtr, n);
-    DecodePtr += n;
-}
-
-
-/*
- * Encode an integer.
- */
-void
-enc_int(int64_t l, int n)
-{
-    while (n--) {
-        *EncodePtr++ = l;
-        l >>= 8;
-    }
-}
-
-
-/*
- * Decode an integer.
- */
-int64_t
-dec_int(int n)
-{
-    uint64_t l = 0;
-    uint8_t *p = (DecodePtr += n);
-    while (n--)
-        l = (l << 8) | (*--p & 0xFF);
-    return l;
-}
-
-
-/*
  * Get various temporal parameters.
  */
 static void
@@ -2672,18 +2464,18 @@ get_times(CLOCK timex[T_N])
 
     timex[0] = times(&tms);
     if (lseek(ProcStatFD, 0, 0) < 0)
-        syserror_die("Failed to seek /proc/stat");
+        error(SYS, "failed to seek /proc/stat");
     n = read(ProcStatFD, buf, sizeof(buf)-1);
     buf[n] = '\0';
     if (strncmp(buf, "cpu ", 4))
-        error_die("/proc/stat does not start with 'cpu '");
+        error(0, "/proc/stat does not start with 'cpu '");
     p = &buf[3];
     for (n = 1; n < T_N; ++n) {
         while (*p == ' ')
             ++p;
         if (!isdigit(*p)) {
             if (*p != '\n' || n < T_N-1)
-                error_die("/proc/stat has bad format");
+                error(0, "/proc/stat has bad format");
             break;
         }
         timex[n] = strtoll(p, 0, 10);
@@ -2692,20 +2484,6 @@ get_times(CLOCK timex[T_N])
     }
     while (n < T_N)
         timex[n++] = 0;
-}
-
-
-/*
- * Get the time of day in seconds as a floating point number.
- */
-static double
-get_seconds(void)
-{
-    struct timeval timeval;
-
-    if (gettimeofday(&timeval, 0) < 0)
-        syserror_die("gettimeofday failed");
-    return timeval.tv_sec + timeval.tv_usec/(1000.0*1000.0);
 }
 
 
@@ -2742,7 +2520,7 @@ commify(char *data)
         return data;
     data = realloc(data, dataLen+noCommas+1);
     if (!data)
-        error_die("Out of space");
+        error(0, "out of space");
     s = dataLen;
     d = dataLen + noCommas;
     for (;;) {
@@ -2767,147 +2545,4 @@ strncopy(char *d, char *s, int n)
 {
     strncpy(d, s, n);
     d[n-1] = '\0';
-}
-
-
-/*
- * Call malloc and panic on error.
- */
-void *
-qmalloc(long n)
-{
-    void *p = malloc(n);
-    if (!p)
-        error_die("Out of space");
-    return p;
-}
-
-
-/*
- * Print out an error message and exit.
- */
-static char *
-qasprintf(char *fmt, ...)
-{
-    int stat;
-    char *str;
-    va_list alist;
-
-    va_start(alist, fmt);
-    stat = vasprintf(&str, fmt, alist);
-    va_end(alist);
-    if (stat < 0)
-        error_die("Out of space");
-    return str;
-}
-
-
-/*
- * Print out a debug message.
- */
-void
-debug(char *fmt, ...)
-{
-    va_list alist;
-
-    if (!Debug)
-        return;
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    fprintf(stderr, "\n");
-}
-
-
-/*
- * Print out an error message.
- */
-int
-error(char *fmt, ...)
-{
-    va_list alist;
-
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    fprintf(stderr, "\n");
-    return 0;
-}
-
-
-/*
- * Print out an error message and exit.
- */
-void
-error_die(char *fmt, ...)
-{
-    va_list alist;
-
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    fprintf(stderr, "\n");
-    die();
-}
-
-
-/*
- * Print out a system error message.
- */
-int
-syserror(char *fmt, ...)
-{
-    va_list alist;
-
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    if (errno)
-        fprintf(stderr, ": %s", strerror(errno));
-    fprintf(stderr, "\n");
-    return 0;
-}
-
-/*
- * Print out a system error message and exit.
- */
-void
-syserror_die(char *fmt, ...)
-{
-    va_list alist;
-
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    if (errno)
-        fprintf(stderr, ": %s", strerror(errno));
-    fprintf(stderr, "\n");
-    die();
-}
-
-
-/*
- * Print out an internal error and exit.
- */
-static void
-bug_die(char *fmt, ...)
-{
-    va_list alist;
-
-    fprintf(stderr, "internal error: ");
-    va_start(alist, fmt);
-    vfprintf(stderr, fmt, alist);
-    va_end(alist);
-    fprintf(stderr, "\n");
-    die();
-}
-
-
-/*
- * Exit unsuccessfully.
- */
-void
-die(void)
-{
-    exit(1);
 }

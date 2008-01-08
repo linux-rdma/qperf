@@ -1,8 +1,8 @@
 /*
  * qperf - general header file.
  *
- * Copyright (c) 2002-2007 Johann George.  All rights reserved.
- * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2008 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -32,6 +32,8 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+#define _GNU_SOURCE
+#include <netdb.h>
 
 
 /*
@@ -47,9 +49,24 @@
 #define cardof(a)       (sizeof(a)/sizeof(*a))
 #define endof(a)        (&a[cardof(a)])
 #define streq(a, b)     (strcmp(a, b) == 0)
-#define is_client()     (ServerName)
+#define is_client()     (ServerName != 0)
+#define is_sender()     (Req.flip ? !is_client() : is_client())
 
+
+/*
+ * Type definitions.
+ */
 typedef uint64_t CLOCK;
+typedef struct sockaddr SA;
+typedef struct sockaddr_storage SS;
+
+
+/*
+ * Error actions.
+ */
+#define BUG 1                           /* Internal error */
+#define SYS 2                           /* System error */
+#define RET 4                           /* Return, don't exit */
 
 
 /*
@@ -127,7 +144,7 @@ typedef struct REQ {
     uint16_t    ver_min;                /* Minor version */
     uint16_t    ver_inc;                /* Incremental version */
     uint16_t    req_index;              /* Request index (into Tests) */
-    uint32_t    flip;                   /* Flip local/remote node functions */
+    uint32_t    flip;                   /* Flip sender/receiver */
     uint32_t    access_recv;            /* Access data after receiving */
     uint32_t    affinity;               /* Processor affinity */
     uint32_t    poll_mode;              /* Poll mode */
@@ -201,9 +218,28 @@ typedef struct RES {
 
 
 /*
- * Functions prototypes.
+ * Functions prototypes in qperf.c.
  */
 void        client_send_request(void);
+void        exchange_results(void);
+int         left_to_send(long *sentp, int room);
+void        opt_check(void);
+void        par_use(PAR_INDEX index);
+void        recv_mesg(void *ptr, int len, char *item);
+void        send_mesg(void *ptr, int len, char *item);
+void        set_finished(void);
+void        setp_u32(char *name, PAR_INDEX index, uint32_t l);
+void        setp_str(char *name, PAR_INDEX index, char *s);
+void        setv_u32(PAR_INDEX index, uint32_t l);
+void        show_results(MEASURE measure);
+void        stop_test_timer(void);
+void        sync_test(void);
+
+
+/*
+ * Functions prototypes in support.c.
+ */
+void        check_remote_error(void);
 void        debug(char *fmt, ...);
 void        dec_init(void *p);
 int64_t     dec_int(int n);
@@ -212,34 +248,28 @@ void        die(void);
 void        enc_init(void *p);
 void        enc_int(int64_t l, int n);
 void        enc_str(char *s, int n);
-int         error(char *fmt, ...);
-void        error_die(char *fmt, ...);
-void        exchange_results(void);
-int         left_to_send(long *sentp, int room);
-void        opt_check(void);
+int         error(int actions, char *fmt, ...);
+char       *qasprintf(char *fmt, ...);
 void       *qmalloc(long n);
-int         recv_mesg(void *ptr, int len, char *item);
-int         send_mesg(void *ptr, int len, char *item);
-void        set_finished(void);
-void        setp_u32(char *name, PAR_INDEX index, uint32_t l);
-void        setp_str(char *name, PAR_INDEX index, char *s);
-void        setv_u32(PAR_INDEX index, uint32_t l);
-void        show_results(MEASURE measure);
-void        stop_timing(void);
-int         synchronize(void);
-int         syserror(char *fmt, ...);
-void        syserror_die(char *fmt, ...);
+void        recv_sync(char *msg);
+void        send_sync(char *msg);
+void        setsockopt_one(int fd, int optname);
+void        synchronize(char *msg);
 void        touch_data(void *p, int n);
-void        par_use(PAR_INDEX index);
+void        urgent_error(void);
 
 
 /*
- * Socket tests (ip.c).
+ * Socket tests in socket.c.
  */
 void    run_client_rds_bw(void);
 void    run_server_rds_bw(void);
 void    run_client_rds_lat(void);
 void    run_server_rds_lat(void);
+void    run_client_sctp_bw(void);
+void    run_server_sctp_bw(void);
+void    run_client_sctp_lat(void);
+void    run_server_sctp_lat(void);
 void    run_client_sdp_bw(void);
 void    run_server_sdp_bw(void);
 void    run_client_sdp_lat(void);
@@ -255,7 +285,7 @@ void    run_server_udp_lat(void);
 
 
 /*
- * InfiniBand tests (ib.c).
+ * RDMA tests in rdma.c.
  */
 void    run_client_bug(void);
 void    run_server_bug(void);
@@ -312,5 +342,8 @@ extern STAT         LStat;
 extern char        *Usage[];
 extern char        *TestName;
 extern char        *ServerName;
-extern int          Successful;
+extern SS           ServerAddr;
+extern int          ServerAddrLen;
+extern int          RemoteFD;
+extern int          Debug;
 extern volatile int Finished;

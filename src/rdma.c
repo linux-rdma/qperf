@@ -1,8 +1,8 @@
 /*
  * qperf - handle RDMA tests.
  *
- * Copyright (c) 2002-2007 Johann George.  All rights reserved.
- * Copyright (c) 2006-2007 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2008 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -153,7 +153,7 @@ typedef struct RATES {
  */
 static void     cq_error(int status);
 static void     dec_ibcon(IBCON *host);
-static int      do_error(int status, uint64_t *errors);
+static void     do_error(int status, uint64_t *errors);
 static void     enc_ibcon(IBCON *host);
 static void     ib_bi_bw(int transport);
 static void     ib_client_atomic(ATOMIC atomic);
@@ -162,25 +162,26 @@ static void     ib_client_rdma_bw(int transport, OPCODE opcode);
 static void     ib_client_rdma_read_lat(int transport);
 static void     ib_close(IBDEV *ibdev);
 static void     ib_debug_info(IBDEV *ibdev);
-static int      ib_init(IBDEV *ibdev);
-static int      ib_mralloc(IBDEV *ibdev, int size);
-static int      ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR);
+static void     ib_init(IBDEV *ibdev);
+static void     ib_mralloc(IBDEV *ibdev, int size);
+static void     ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR);
 static void     ib_params_atomics(void);
 static void     ib_params_msgs(long msgSize, int use_poll_mode);
 static int      ib_poll(IBDEV *ibdev, struct ibv_wc *wc, int nwc);
-static int      ib_post_rdma(IBDEV *ibdev, OPCODE opcode, int n);
-static int      ib_post_compare_swap(IBDEV *ibdev,
+static void     ib_post_rdma(IBDEV *ibdev, OPCODE opcode, int n);
+static void     ib_post_compare_swap(IBDEV *ibdev,
                      int wrid, int offset, uint64_t compare, uint64_t swap);
-static int      ib_post_fetch_add(IBDEV *ibdev,
+static void     ib_post_fetch_add(IBDEV *ibdev,
                                         int wrid, int offset, uint64_t add);
-static int      ib_post_recv(IBDEV *ibdev, int n);
-static int      ib_post_send(IBDEV *ibdev, int n);
+static void     ib_post_recv(IBDEV *ibdev, int n);
+static void     ib_post_send(IBDEV *ibdev, int n);
 static void     ib_pp_lat(int transport, IOMODE iomode);
 static void     ib_pp_lat_loop(IBDEV *ibdev, IOMODE iomode);
-static int      ib_prepare(IBDEV *ibdev);
+static void     ib_prepare(IBDEV *ibdev);
 static void     ib_rdma_write_poll_lat(int transport);
 static void     ib_server_def(int transport);
 static void     ib_server_nop(int transport);
+static int      maybe(int val, char *msg);
 static char     *opcode_name(int opcode);
 
 
@@ -252,70 +253,6 @@ RATES Rates[] ={
     { "80",     IBV_RATE_80_GBPS    },
     { "120",    IBV_RATE_120_GBPS   },
 };
-
-
-/*
- * Experimental (client side).
- */
-void
-run_client_experimental(void)
-{
-    IBDEV ibdev;
-
-    ib_params_msgs(K64, 1);
-    if (!ib_open(&ibdev, IBV_QPT_UC, 1, 0))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
-    if (!ib_post_rdma(&ibdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1))
-        goto err;
-    Successful = 1;
-err:
-    stop_timing();
-    exchange_results();
-    ib_close(&ibdev);
-}
-
-
-/*
- * Experimental (server side).
- */
-void
-run_server_experimental(void)
-{
-    IBDEV ibdev;
-    int found = 0;
-
-    if (!ib_open(&ibdev, IBV_QPT_UC, 0, 1))
-        return;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!ib_post_recv(&ibdev, 1))
-        goto err;
-    if (!synchronize())
-        goto err;
-    while (!Finished) {
-        struct ibv_wc wc[NCQE];
-        int n = ib_poll(&ibdev, wc, cardof(wc));
-        if (n < 0)
-            goto err;
-        if (n) {
-            found = 1;
-            break;
-        }
-    }
-    if (found)
-        printf("Received immediate data\n");
-    else
-        printf("Failed to received immediate data\n");
-    Successful = 1;
-err:
-    stop_timing();
-    exchange_results();
-    ib_close(&ibdev);
-}
 
 
 /*
@@ -760,19 +697,15 @@ run_client_ver_rc_compare_swap(void)
     int size;
 
     ib_params_atomics();
-    if (!ib_open(&ibdev, IBV_QPT_RC, NCQE, 0))
-        goto err;
+    ib_open(&ibdev, IBV_QPT_RC, NCQE, 0);
     size = Req.rd_atomic * sizeof(uint64_t);
     setv_u32(L_MSG_SIZE, size);
     setv_u32(R_MSG_SIZE, size);
     ib_mralloc(&ibdev, size);
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
+    ib_init(&ibdev);
+    sync_test();
     for (i = 0; i < Req.rd_atomic; ++i) {
-        if (!ib_post_compare_swap(&ibdev, i, i*sizeof(uint64_t), cur, next))
-            goto err;
+        ib_post_compare_swap(&ibdev, i, i*sizeof(uint64_t), cur, next);
         cur = next;
         next = cur + 1;
     }
@@ -784,8 +717,6 @@ run_client_ver_rc_compare_swap(void)
 
         if (Finished)
             break;
-        if (n < 0)
-            goto err;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         for (i = 0; i < n; ++i) {
@@ -794,28 +725,22 @@ run_client_ver_rc_compare_swap(void)
             if (status == IBV_WC_SUCCESS) {
                 LStat.rem_r.no_bytes += sizeof(uint64_t);
                 LStat.rem_r.no_msgs++;
-            } else if (!do_error(status, &LStat.s.no_errs))
-                goto err;
+            } else
+                do_error(status, &LStat.s.no_errs);
             res = result[x];
-            if (last != res) {
-                error("compare and swap doesn't match (expected %llx vs. %llx)",
-                        (long long)last, (long long)res);
-                goto err;
-            }
+            if (last != res)
+                error(0, "compare and swap mismatch (expected %llx vs. %llx)",
+                                            (long long)last, (long long)res);
             if (last)
                     last++;
             else
                     last = 0x0123456789abcdefULL;
             next = cur + 1;
-            if (!ib_post_compare_swap(&ibdev, x, x*sizeof(uint64_t),
-                                                            cur, next))
-                goto err;
+            ib_post_compare_swap(&ibdev, x, x*sizeof(uint64_t), cur, next);
             cur = next;
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
     show_results(MSG_RATE);
@@ -845,20 +770,15 @@ run_client_ver_rc_fetch_add(void)
     int size;
 
     ib_params_atomics();
-    if (!ib_open(&ibdev, IBV_QPT_RC, NCQE, 0))
-        goto err;
+    ib_open(&ibdev, IBV_QPT_RC, NCQE, 0);
     size = Req.rd_atomic * sizeof(uint64_t);
     setv_u32(L_MSG_SIZE, size);
     setv_u32(R_MSG_SIZE, size);
     ib_mralloc(&ibdev, size);
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
-    for (i = 0; i < Req.rd_atomic; ++i) {
-        if (!ib_post_fetch_add(&ibdev, i, i*sizeof(uint64_t), 1))
-            goto err;
-    }
+    ib_init(&ibdev);
+    sync_test();
+    for (i = 0; i < Req.rd_atomic; ++i)
+        ib_post_fetch_add(&ibdev, i, i*sizeof(uint64_t), 1);
     result = (uint64_t *) ibdev.buffer;
     while (!Finished) {
         struct ibv_wc wc[NCQE];
@@ -867,8 +787,6 @@ run_client_ver_rc_fetch_add(void)
 
         if (Finished)
             break;
-        if (n < 0)
-            goto err;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         for (i = 0; i < n; ++i) {
@@ -877,22 +795,17 @@ run_client_ver_rc_fetch_add(void)
             if (status == IBV_WC_SUCCESS) {
                 LStat.rem_r.no_bytes += sizeof(uint64_t);
                 LStat.rem_r.no_msgs++;
-            } else if (!do_error(status, &LStat.s.no_errs))
-                goto err;
+            } else
+                do_error(status, &LStat.s.no_errs);
             res = result[x];
-            if (last != res) {
-                error("fetch and add doesn't match (expected %llx vs. %llx)",
+            if (last != res)
+                error(0, "fetch and add mismatch (expected %llx vs. %llx)",
                         (long long)last, (long long)res);
-                goto err;
-            }
             last++;
-            if (!ib_post_fetch_add(&ibdev, x, x*sizeof(uint64_t), 1))
-                goto err;
+            ib_post_fetch_add(&ibdev, x, x*sizeof(uint64_t), 1);
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
     show_results(MSG_RATE);
@@ -916,33 +829,28 @@ static void
 ib_client_atomic(ATOMIC atomic)
 {
     int i;
-    int r;
     IBDEV ibdev;
 
     ib_params_atomics();
-    if (!ib_open(&ibdev, IBV_QPT_RC, NCQE, 0))
-        goto err;
+    ib_open(&ibdev, IBV_QPT_RC, NCQE, 0);
     setv_u32(L_MSG_SIZE, sizeof(uint64_t));
     setv_u32(R_MSG_SIZE, sizeof(uint64_t));
     ib_mralloc(&ibdev, sizeof(uint64_t));
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
+    ib_init(&ibdev);
+    sync_test();
+
     for (i = 0; i < Req.rd_atomic; ++i) {
-        r = (atomic == FETCH_ADD)
-          ? ib_post_fetch_add(&ibdev, 0, 0, 0)
-          : ib_post_compare_swap(&ibdev, 0, 0, 0, 0);
-        if (!r)
-            goto err;
+        if (atomic == FETCH_ADD)
+            ib_post_fetch_add(&ibdev, 0, 0, 0);
+        else
+            ib_post_compare_swap(&ibdev, 0, 0, 0, 0);
     }
+
     while (!Finished) {
         struct ibv_wc wc[NCQE];
         int n = ib_poll(&ibdev, wc, cardof(wc));
         if (Finished)
             break;
-        if (n < 0)
-            goto err;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         for (i = 0; i < n; ++i) {
@@ -950,18 +858,16 @@ ib_client_atomic(ATOMIC atomic)
             if (status == IBV_WC_SUCCESS) {
                 LStat.rem_r.no_bytes += sizeof(uint64_t);
                 LStat.rem_r.no_msgs++;
-            } else if (!do_error(status, &LStat.s.no_errs))
-                goto err;
-            r = (atomic == FETCH_ADD)
-              ? ib_post_fetch_add(&ibdev, 0, 0, 0)
-              : ib_post_compare_swap(&ibdev, 0, 0, 0, 0);
-            if (!r)
-                goto err;
+            } else
+                do_error(status, &LStat.s.no_errs);
+            if (atomic == FETCH_ADD)
+                ib_post_fetch_add(&ibdev, 0, 0, 0);
+            else
+                ib_post_compare_swap(&ibdev, 0, 0, 0, 0);
         }
     }
-    Successful = 1;
-err:
-    stop_timing();
+
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
     show_results(MSG_RATE);
@@ -977,14 +883,10 @@ ib_client_bw(int transport)
     IBDEV ibdev;
 
     long sent = 0;
-    if (!ib_open(&ibdev, transport, NCQE, 0))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
-    if (!ib_post_send(&ibdev, left_to_send(&sent, NCQE)))
-        goto err;
+    ib_open(&ibdev, transport, NCQE, 0);
+    ib_init(&ibdev);
+    sync_test();
+    ib_post_send(&ibdev, left_to_send(&sent, NCQE));
     sent = NCQE;
     while (!Finished) {
         int i;
@@ -993,8 +895,6 @@ ib_client_bw(int transport)
         int n = ib_poll(&ibdev, wc, cardof(wc));
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
-        if (n < 0)
-            goto err;
         if (Finished)
             break;
         for (i = 0; i < n; ++i) {
@@ -1003,21 +903,17 @@ ib_client_bw(int transport)
             if (id != WRID_SEND)
                 debug("bad WR ID %d", id);
             else if (status != IBV_WC_SUCCESS)
-                if (!do_error(status, &LStat.s.no_errs))
-                    goto err;
+                do_error(status, &LStat.s.no_errs);
         }
         if (Req.no_msgs) {
             if (LStat.s.no_msgs + LStat.s.no_errs >= Req.no_msgs)
                 break;
             n = left_to_send(&sent, n);
         }
-        if (!ib_post_send(&ibdev, n))
-            goto err;
+        ib_post_send(&ibdev, n);
         sent += n;
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1032,14 +928,10 @@ ib_server_def(int transport)
 {
     IBDEV ibdev;
 
-    if (!ib_open(&ibdev, transport, 0, NCQE))
-        return;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!ib_post_recv(&ibdev, NCQE))
-        goto err;
-    if (!synchronize())
-        goto err;
+    ib_open(&ibdev, transport, 0, NCQE);
+    ib_init(&ibdev);
+    ib_post_recv(&ibdev, NCQE);
+    sync_test();
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
@@ -1048,8 +940,6 @@ ib_server_def(int transport)
             break;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
-        if (n < 0)
-            goto err;
         for (i = 0; i < n; ++i) {
             int status = wc[i].status;
             if (status == IBV_WC_SUCCESS) {
@@ -1057,18 +947,15 @@ ib_server_def(int transport)
                 LStat.r.no_msgs++;
                 if (Req.access_recv)
                     touch_data(ibdev.buffer, Req.msg_size);
-            } else if (!do_error(status, &LStat.r.no_errs))
-                goto err;
+            } else
+                do_error(status, &LStat.r.no_errs);
         }
         if (Req.no_msgs)
             if (LStat.r.no_msgs + LStat.r.no_errs >= Req.no_msgs)
                 break;
-        if (!ib_post_recv(&ibdev, n))
-            goto err;
+        ib_post_recv(&ibdev, n);
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1082,37 +969,29 @@ ib_bi_bw(int transport)
 {
     IBDEV ibdev;
 
-    if (!ib_open(&ibdev, transport, NCQE, NCQE))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!ib_post_recv(&ibdev, NCQE))
-        goto err;
-    if (!synchronize())
-        goto err;
-    if (!ib_post_send(&ibdev, NCQE))
-        goto err;
+    ib_open(&ibdev, transport, NCQE, NCQE);
+    ib_init(&ibdev);
+    ib_post_recv(&ibdev, NCQE);
+    sync_test();
+    ib_post_send(&ibdev, NCQE);
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
-        int noSend = 0;
-        int noRecv = 0;
+        int numSent = 0;
+        int numRecv = 0;
         int n = ib_poll(&ibdev, wc, cardof(wc));
         if (Finished)
             break;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
-        if (n < 0)
-            goto err;
         for (i = 0; i < n; ++i) {
             int id = wc[i].wr_id;
             int status = wc[i].status;
             switch (id) {
             case WRID_SEND:
                 if (status != IBV_WC_SUCCESS)
-                    if (!do_error(status, &LStat.s.no_errs))
-                        goto err;
-                ++noSend;
+                    do_error(status, &LStat.s.no_errs);
+                ++numSent;
                 break;
             case WRID_RECV:
                 if (status == IBV_WC_SUCCESS) {
@@ -1120,24 +999,20 @@ ib_bi_bw(int transport)
                     LStat.r.no_msgs++;
                     if (Req.access_recv)
                         touch_data(ibdev.buffer, Req.msg_size);
-                } else if (!do_error(status, &LStat.r.no_errs))
-                    goto err;
-                ++noRecv;
+                } else
+                    do_error(status, &LStat.r.no_errs);
+                ++numRecv;
                 break;
             default:
                 debug("bad WR ID %d", id);
             }
         }
-        if (noRecv)
-            if (!ib_post_recv(&ibdev, noRecv))
-                goto err;
-        if (noSend)
-            if (!ib_post_send(&ibdev, noSend))
-                goto err;
+        if (numRecv)
+            ib_post_recv(&ibdev, numRecv);
+        if (numSent)
+            ib_post_send(&ibdev, numSent);
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1151,13 +1026,10 @@ ib_pp_lat(int transport, IOMODE iomode)
 {
     IBDEV ibdev;
 
-    if (!ib_open(&ibdev, transport, 1, 1))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
+    ib_open(&ibdev, transport, 1, 1);
+    ib_init(&ibdev);
     ib_pp_lat_loop(&ibdev, iomode);
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
     if (is_client())
@@ -1172,18 +1044,13 @@ static void
 ib_pp_lat_loop(IBDEV *ibdev, IOMODE iomode)
 {
     int done = 1;
-    if (!ib_post_recv(ibdev, 1))
-        return;
-    if (!synchronize())
-        return;
+    ib_post_recv(ibdev, 1);
+    sync_test();
     if (is_client()) {
-        if (iomode == IO_SR) {
-            if (!ib_post_send(ibdev, 1))
-                return;
-        } else {
-            if (!ib_post_rdma(ibdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1))
-                return;
-        }
+        if (iomode == IO_SR)
+            ib_post_send(ibdev, 1);
+        else
+            ib_post_rdma(ibdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
         done = 0;
     }
 
@@ -1193,8 +1060,6 @@ ib_pp_lat_loop(IBDEV *ibdev, IOMODE iomode)
         int n = ib_poll(ibdev, wc, cardof(wc));
         if (Finished)
             break;
-        if (n < 0)
-            return;
         for (i = 0; i < n; ++i) {
             int id = wc[i].wr_id;
             int status = wc[i].status;
@@ -1202,18 +1067,16 @@ ib_pp_lat_loop(IBDEV *ibdev, IOMODE iomode)
             case WRID_SEND:
             case WRID_RDMA:
                 if (status != IBV_WC_SUCCESS)
-                    if (!do_error(status, &LStat.s.no_errs))
-                        return;
+                    do_error(status, &LStat.s.no_errs);
                 done |= 1;
                 continue;
             case WRID_RECV:
                 if (status == IBV_WC_SUCCESS) {
                     LStat.r.no_bytes += Req.msg_size;
                     LStat.r.no_msgs++;
-                    if (!ib_post_recv(ibdev, 1))
-                        return;
-                } else if (!do_error(status, &LStat.r.no_errs))
-                    return;
+                    ib_post_recv(ibdev, 1);
+                } else
+                    do_error(status, &LStat.r.no_errs);
                 done |= 2;
                 continue;
             default:
@@ -1223,17 +1086,13 @@ ib_pp_lat_loop(IBDEV *ibdev, IOMODE iomode)
             break;
         }
         if (done == 3) {
-            if (iomode == IO_SR) {
-                if (!ib_post_send(ibdev, 1))
-                    return;
-            } else {
-                if (!ib_post_rdma(ibdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1))
-                    return;
-            }
+            if (iomode == IO_SR)
+                ib_post_send(ibdev, 1);
+            else
+                ib_post_rdma(ibdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
             done = 0;
         }
     }
-    Successful = 1;
 }
 
 
@@ -1252,12 +1111,9 @@ ib_rdma_write_poll_lat(int transport)
     int locID = send;
     int remID = !locID;
 
-    if (!ib_open(&ibdev, transport, NCQE, 0))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
+    ib_open(&ibdev, transport, NCQE, 0);
+    ib_init(&ibdev);
+    sync_test();
     p = &ibdev.buffer[0];
     q = &ibdev.buffer[Req.msg_size-1];
     while (!Finished) {
@@ -1268,24 +1124,19 @@ ib_rdma_write_poll_lat(int transport)
             int n;
             struct ibv_wc wc[2];
 
-            if (!ib_post_rdma(&ibdev, IBV_WR_RDMA_WRITE, 1))
-                goto err;
+            ib_post_rdma(&ibdev, IBV_WR_RDMA_WRITE, 1);
             if (Finished)
                 break;
             n = ibv_poll_cq(ibdev.cq, cardof(wc), wc);
-            if (n < 0) {
-                syserror("CQ poll failed");
-                goto err;
-            }
+            if (n < 0)
+                error(SYS, "CQ poll failed");
             for (i = 0; i < n; ++i) {
                 int id = wc[i].wr_id;
                 int status = wc[i].status;
                 if (id != WRID_RDMA)
                     debug("bad WR ID %d", id);
-                else if (status != IBV_WC_SUCCESS) {
-                    if (!do_error(status, &LStat.s.no_errs))
-                        goto err;
-                }
+                else if (status != IBV_WC_SUCCESS)
+                    do_error(status, &LStat.s.no_errs);
             }
         }
         while (!Finished)
@@ -1295,9 +1146,7 @@ ib_rdma_write_poll_lat(int transport)
         LStat.r.no_msgs++;
         send = 1;
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1311,19 +1160,13 @@ ib_client_rdma_read_lat(int transport)
 {
     IBDEV ibdev;
 
-    if (!ib_open(&ibdev, transport, 1, 0))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
-    if (!ib_post_rdma(&ibdev, IBV_WR_RDMA_READ, 1))
-        goto err;
+    ib_open(&ibdev, transport, 1, 0);
+    ib_init(&ibdev);
+    sync_test();
+    ib_post_rdma(&ibdev, IBV_WR_RDMA_READ, 1);
     while (!Finished) {
         struct ibv_wc wc;
         int n = ib_poll(&ibdev, &wc, 1);
-        if (n < 0)
-            goto err;
         if (n == 0)
             continue;
         if (Finished)
@@ -1337,14 +1180,11 @@ ib_client_rdma_read_lat(int transport)
             LStat.r.no_msgs++;
             LStat.rem_s.no_bytes += Req.msg_size;
             LStat.rem_s.no_msgs++;
-        } else if (!do_error(wc.status, &LStat.s.no_errs))
-            goto err;
-        if (!ib_post_rdma(&ibdev, IBV_WR_RDMA_READ, 1))
-            goto err;
+        } else
+            do_error(wc.status, &LStat.s.no_errs);
+        ib_post_rdma(&ibdev, IBV_WR_RDMA_READ, 1);
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
     show_results(LATENCY);
@@ -1359,22 +1199,16 @@ ib_client_rdma_bw(int transport, OPCODE opcode)
 {
     IBDEV ibdev;
 
-    if (!ib_open(&ibdev, transport, NCQE, 0))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
-    if (!ib_post_rdma(&ibdev, opcode, NCQE))
-        goto err;
+    ib_open(&ibdev, transport, NCQE, 0);
+    ib_init(&ibdev);
+    sync_test();
+    ib_post_rdma(&ibdev, opcode, NCQE);
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
         int n = ib_poll(&ibdev, wc, cardof(wc));
         if (Finished)
             break;
-        if (n < 0)
-            goto err;
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         for (i = 0; i < n; ++i) {
@@ -1386,15 +1220,12 @@ ib_client_rdma_bw(int transport, OPCODE opcode)
                     LStat.rem_s.no_bytes += Req.msg_size;
                     LStat.rem_s.no_msgs++;
                 }
-            } else if (!do_error(status, &LStat.s.no_errs))
-                goto err;
+            } else
+                do_error(status, &LStat.s.no_errs);
         }
-        if (!ib_post_rdma(&ibdev, opcode, n))
-            goto err;
+        ib_post_rdma(&ibdev, opcode, n);
     }
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1409,17 +1240,12 @@ ib_server_nop(int transport)
     IBDEV ibdev;
 
     /* workaround: Size of RQ should be 0; bug in Mellanox driver */
-    if (!ib_open(&ibdev, transport, 0, 1))
-        goto err;
-    if (!ib_init(&ibdev))
-        goto err;
-    if (!synchronize())
-        goto err;
+    ib_open(&ibdev, transport, 0, 1);
+    ib_init(&ibdev);
+    sync_test();
     while (!Finished)
         pause();
-    Successful = 1;
-err:
-    stop_timing();
+    stop_test_timer();
     exchange_results();
     ib_close(&ibdev);
 }
@@ -1474,7 +1300,7 @@ ib_params_atomics(void)
 /*
  * IB initialization.
  */
-static int
+static void
 ib_init(IBDEV *ibdev)
 {
     IBCON ibcon;
@@ -1483,26 +1309,20 @@ ib_init(IBDEV *ibdev)
         client_send_request();
         enc_init(&ibcon);
         enc_ibcon(&ibdev->lcon);
-        if (!send_mesg(&ibcon, sizeof(ibcon), "IB connection"))
-            return 0;
-        if (!recv_mesg(&ibcon, sizeof(ibcon), "IB connection"))
-            return 0;
+        send_mesg(&ibcon, sizeof(ibcon), "IB connection");
+        recv_mesg(&ibcon, sizeof(ibcon), "IB connection");
         dec_init(&ibcon);
         dec_ibcon(&ibdev->rcon);
     } else {
-        if (!recv_mesg(&ibcon, sizeof(ibcon), "IB connection"))
-            return 0;
+        recv_mesg(&ibcon, sizeof(ibcon), "IB connection");
         dec_init(&ibcon);
         dec_ibcon(&ibdev->rcon);
         enc_init(&ibcon);
         enc_ibcon(&ibdev->lcon);
-        if (!send_mesg(&ibcon, sizeof(ibcon), "IB connection"))
-            return 0;
+        send_mesg(&ibcon, sizeof(ibcon), "IB connection");
     }
-    if (!ib_prepare(ibdev))
-        return 0;
+    ib_prepare(ibdev);
     ib_debug_info(ibdev);
-    return 1;
 }
 
 
@@ -1524,7 +1344,7 @@ ib_debug_info(IBDEV *ibdev)
 /*
  * Open a RDMA device.
  */
-static int
+static void
 ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
 {
     /* Clear structure */
@@ -1544,7 +1364,7 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
         else if (mtu == 4096)
             ibdev->mtu = IBV_MTU_4096;
         else
-            error_die("Bad MTU: %d; must be 256/512/1K/2K/4K", mtu);
+            error(0, "bad MTU: %d; must be 256/512/1K/2K/4K", mtu);
     }
 
     /* Set transport type */
@@ -1558,7 +1378,7 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
             *p++ = '\0';
             port = atoi(p);
             if (port < 1)
-                error_die("Bad IB port: %d; must be at least 1", port);
+                error(0, "bad IB port: %d; must be at least 1", port);
         }
         ibdev->port = port;
     }
@@ -1569,10 +1389,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
         RATES *r = q + cardof(Rates);
 
         for (;; ++q) {
-            if (q >= r) {
-                syserror("Bad rate: %s", Req.rate);
-                goto err;
-            }
+            if (q >= r)
+                error(SYS, "bad rate: %s", Req.rate);
             if (streq(Req.rate, q->name)) {
                 ibdev->rate = q->rate;
                 break;
@@ -1586,10 +1404,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
         char *name = Req.id[0] ? Req.id : 0;
 
         ibdev->devlist = ibv_get_device_list(0);
-        if (!ibdev->devlist) {
-            syserror("Failed to find any IB devices");
-            goto err;
-        }
+        if (!ibdev->devlist)
+            error(SYS, "failed to find any IB devices");
         if (!name)
             device = *ibdev->devlist;
         else {
@@ -1598,30 +1414,22 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
                 if (streq(ibv_get_device_name(device), name))
                     break;
         }
-        if (!device) {
-            syserror("Failed to find IB device");
-            goto err;
-        }
+        if (!device)
+            error(SYS, "failed to find IB device");
         ibdev->context = ibv_open_device(device);
-        if (!ibdev->context) {
-            syserror("Failed to open device %s", ibv_get_device_name(device));
-            goto err;
-        }
+        if (!ibdev->context)
+            error(SYS, "failed to open device %s", ibv_get_device_name(device));
     }
 
     /* Allocate completion channel */
     ibdev->channel = ibv_create_comp_channel(ibdev->context);
-    if (!ibdev->channel) {
-        syserror("Failed to create completion channel");
-        goto err;
-    }
+    if (!ibdev->channel)
+        error(SYS, "failed to create completion channel");
 
     /* Allocate protection domain */
     ibdev->pd = ibv_alloc_pd(ibdev->context);
-    if (!ibdev->pd) {
-        syserror("Failed to allocate protection domain");
-        goto err;
-    }
+    if (!ibdev->pd)
+        error(SYS, "failed to allocate protection domain");
 
     /* Allocate message buffer and memory region */
     {
@@ -1631,29 +1439,23 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
             bufSize += GRH_SIZE;
         if (bufSize == 0)
             bufSize = 1;
-        if (posix_memalign((void **)&ibdev->buffer, pageSize, bufSize) != 0) {
-            syserror("Failed to allocate memory");
-            goto err;
-        }
+        if (posix_memalign((void **)&ibdev->buffer, pageSize, bufSize) != 0)
+            error(SYS, "failed to allocate memory");
         memset(ibdev->buffer, 0, bufSize);
         int flags = IBV_ACCESS_LOCAL_WRITE  |
                     IBV_ACCESS_REMOTE_READ  |
                     IBV_ACCESS_REMOTE_WRITE |
                     IBV_ACCESS_REMOTE_ATOMIC;
         ibdev->mr = ibv_reg_mr(ibdev->pd, ibdev->buffer, bufSize, flags);
-        if (!ibdev->mr) {
-            syserror("Failed to allocate memory region");
-            goto err;
-        }
+        if (!ibdev->mr)
+            error(SYS, "failed to allocate memory region");
     }
 
     /* Create completion queue */
     ibdev->cq = ibv_create_cq(ibdev->context,
                               maxSendWR+maxRecvWR, 0, ibdev->channel, 0);
-    if (!ibdev->cq) {
-        syserror("Failed to create completion queue");
-        goto err;
-    }
+    if (!ibdev->cq)
+        error(SYS, "failed to create completion queue");
 
     /* Create queue pair */
     {
@@ -1670,10 +1472,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
             .qp_type = ibdev->trans,
         };
         ibdev->qp = ibv_create_qp(ibdev->pd, &attr);
-        if (!ibdev->qp) {
-            syserror("Failed to create QP");
-            goto err;
-        }
+        if (!ibdev->qp)
+            error(SYS, "failed to create QP");
     }
 
     /* Modify queue pair to INIT state */
@@ -1698,10 +1498,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
             flags |= IBV_QP_ACCESS_FLAGS;
             attr.qp_access_flags = IBV_ACCESS_REMOTE_WRITE;
         }
-        if (ibv_modify_qp(ibdev->qp, &attr, flags) != SUCCESS0) {
-            syserror("Failed to modify QP to INIT state");
-            goto err;
-        }
+        if (ibv_modify_qp(ibdev->qp, &attr, flags) != SUCCESS0)
+            error(SYS, "failed to modify QP to INIT state");
     }
 
     /* Get QP attributes */
@@ -1709,10 +1507,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
         struct ibv_qp_attr qp_attr;
         struct ibv_qp_init_attr qp_init_attr;
 
-        if (ibv_query_qp(ibdev->qp, &qp_attr, 0, &qp_init_attr) != SUCCESS0) {
-            syserror("Query QP failed");
-            goto err;
-        }
+        if (ibv_query_qp(ibdev->qp, &qp_attr, 0, &qp_init_attr) != SUCCESS0)
+            error(SYS, "query QP failed");
         ibdev->maxinline = qp_attr.cap.max_inline_data;
     }
 
@@ -1720,15 +1516,13 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
     {
         struct ibv_device_attr dev_attr;
 
-        if (ibv_query_device(ibdev->context, &dev_attr) != SUCCESS0) {
-            syserror("Query device failed");
-            goto err;
-        }
+        if (ibv_query_device(ibdev->context, &dev_attr) != SUCCESS0)
+            error(SYS, "query device failed");
         if (Req.rd_atomic == 0)
             Req.rd_atomic = dev_attr.max_qp_rd_atom;
         else if (Req.rd_atomic > dev_attr.max_qp_rd_atom)
-            error("Device only supports %d (< %d) RDMA reads or atomic ops",
-                  dev_attr.max_qp_rd_atom, Req.rd_atomic);
+            error(0, "device only supports %d (< %d) RDMA reads or atomic ops",
+                                    dev_attr.max_qp_rd_atom, Req.rd_atomic);
     }
 
     /* Set up local context */
@@ -1736,10 +1530,8 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
         struct ibv_port_attr port_attr;
 
         int stat = ibv_query_port(ibdev->context, ibdev->port, &port_attr);
-        if (stat != SUCCESS0) {
-            syserror("Query port failed");
-            goto err;
-        }
+        if (stat != SUCCESS0)
+            error(SYS, "query port failed");
         srand48(getpid()*time(0));
 
         ibdev->lcon.lid   = port_attr.lid;
@@ -1750,61 +1542,43 @@ ib_open(IBDEV *ibdev, int trans, int maxSendWR, int maxRecvWR)
     }
 
     /* Allocate memory region */
-    if (!ib_mralloc(ibdev, Req.msg_size))
-        goto err;
-    return 1;
-
-err:
-    ib_close(ibdev);
-    return 0;
+    ib_mralloc(ibdev, Req.msg_size);
 }
 
 
 /*
  * Allocate a memory region.
  */
-static int
+static void
 ib_mralloc(IBDEV *ibdev, int size)
 {
     int pageSize;
 
     if (size == 0)
-        return 1;
+        return;
     if (ibdev->trans == IBV_QPT_UD)
         size += GRH_SIZE;
     pageSize = sysconf(_SC_PAGESIZE);
-    if (posix_memalign((void **)&ibdev->buffer, pageSize, size) != 0) {
-        syserror("Failed to allocate memory");
-        goto err;
-    }
+    if (posix_memalign((void **)&ibdev->buffer, pageSize, size) != 0)
+        error(SYS, "failed to allocate memory");
     memset(ibdev->buffer, 0, size);
     int flags = IBV_ACCESS_LOCAL_WRITE  |
                 IBV_ACCESS_REMOTE_READ  |
                 IBV_ACCESS_REMOTE_WRITE |
                 IBV_ACCESS_REMOTE_ATOMIC;
     ibdev->mr = ibv_reg_mr(ibdev->pd, ibdev->buffer, size, flags);
-    if (!ibdev->mr) {
-        syserror("Failed to allocate memory region");
-        goto err;
-    }
+    if (!ibdev->mr)
+        error(SYS, "failed to allocate memory region");
 
     ibdev->lcon.rkey  = ibdev->mr->rkey;
     ibdev->lcon.vaddr = (unsigned long)ibdev->buffer;
-    return 1;
-
-err:
-    if (ibdev->buffer) {
-        free(ibdev->buffer);
-        ibdev->buffer = 0;
-    }
-    return 0;
 }
 
 
 /*
  * Prepare the IB device for receiving and sending.
  */
-static int
+static void
 ib_prepare(IBDEV *ibdev)
 {
     int flags;
@@ -1839,17 +1613,17 @@ ib_prepare(IBDEV *ibdev)
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE;
         if (ibv_modify_qp(ibdev->qp, &rtr_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTR");
+            error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
         flags = IBV_QP_STATE | IBV_QP_SQ_PSN;
         if (ibv_modify_qp(ibdev->qp, &rts_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTS");
+            error(SYS, "failed to modify QP to RTS");
 
         /* Create address handle */
         ibdev->ah = ibv_create_ah(ibdev->pd, &ah_attr);
         if (!ibdev->ah)
-            return syserror("Failed to create address handle");
+            error(SYS, "failed to create address handle");
     } else if (ibdev->trans == IBV_QPT_RC) {
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE              |
@@ -1860,7 +1634,7 @@ ib_prepare(IBDEV *ibdev)
                 IBV_QP_MAX_DEST_RD_ATOMIC |
                 IBV_QP_MIN_RNR_TIMER;
         if (ibv_modify_qp(ibdev->qp, &rtr_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTR");
+            error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
         flags = IBV_QP_STATE     |
@@ -1870,7 +1644,7 @@ ib_prepare(IBDEV *ibdev)
                 IBV_QP_SQ_PSN    |
                 IBV_QP_MAX_QP_RD_ATOMIC;
         if (ibv_modify_qp(ibdev->qp, &rts_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTS");
+            error(SYS, "failed to modify QP to RTS");
     } else if (ibdev->trans == IBV_QPT_UC) {
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE    |
@@ -1879,19 +1653,18 @@ ib_prepare(IBDEV *ibdev)
                 IBV_QP_DEST_QPN |
                 IBV_QP_RQ_PSN;
         if (ibv_modify_qp(ibdev->qp, &rtr_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTR");
+            error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
         flags = IBV_QP_STATE |
                 IBV_QP_SQ_PSN;
         if (ibv_modify_qp(ibdev->qp, &rts_attr, flags) != SUCCESS0)
-            return syserror("Failed to modify QP to RTS");
+            error(SYS, "failed to modify QP to RTS");
     }
     if (!Req.poll_mode) {
         if (ibv_req_notify_cq(ibdev->cq, 0) != SUCCESS0)
-            return syserror("Failed to request CQ notification");
+            error(SYS, "failed to request CQ notification");
     }
-    return 1;
 }
 
 
@@ -1927,7 +1700,7 @@ ib_close(IBDEV *ibdev)
 /*
  * Post a compare and swap request.
  */
-static int
+static void
 ib_post_compare_swap(IBDEV *ibdev,
                      int wrid, int offset, uint64_t compare, uint64_t swap)
 {
@@ -1956,20 +1729,19 @@ ib_post_compare_swap(IBDEV *ibdev,
     errno = 0;
     if (ibv_post_send(ibdev->qp, &wr, &badWR) != SUCCESS0) {
         if (Finished && errno == EINTR)
-            return 1;
-        return syserror("Failed to post compare and swap");
+            return;
+        error(SYS, "failed to post compare and swap");
     }
 
     LStat.s.no_bytes += sizeof(uint64_t);
     LStat.s.no_msgs++;
-    return 1;
 }
 
 
 /*
  * Post a fetch and add request.
  */
-static int
+static void
 ib_post_fetch_add(IBDEV *ibdev, int wrid, int offset, uint64_t add)
 {
     struct ibv_sge sge ={
@@ -1996,20 +1768,19 @@ ib_post_fetch_add(IBDEV *ibdev, int wrid, int offset, uint64_t add)
     errno = 0;
     if (ibv_post_send(ibdev->qp, &wr, &badWR) != SUCCESS0) {
         if (Finished && errno == EINTR)
-            return 1;
-        return syserror("Failed to post fetch and add");
+            return;
+        error(SYS, "failed to post fetch and add");
     }
 
     LStat.s.no_bytes += sizeof(uint64_t);
     LStat.s.no_msgs++;
-    return 1;
 }
 
 
 /*
  * Post n sends.
  */
-static int
+static void
 ib_post_send(IBDEV *ibdev, int n)
 {
     struct ibv_sge sge ={
@@ -2037,21 +1808,19 @@ ib_post_send(IBDEV *ibdev, int n)
     while (n-- > 0) {
         if (ibv_post_send(ibdev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
-                return 1;
-            return syserror("Failed to post send");
+                return;
+            error(SYS, "failed to post send");
         }
         LStat.s.no_bytes += Req.msg_size;
         LStat.s.no_msgs++;
     }
-
-    return 1;
 }
 
 
 /*
  * Post n receives.
  */
-static int
+static void
 ib_post_recv(IBDEV *ibdev, int n)
 {
     struct ibv_sge sge ={
@@ -2073,18 +1842,17 @@ ib_post_recv(IBDEV *ibdev, int n)
     while (n-- > 0) {
         if (ibv_post_recv(ibdev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
-                return 1;
-            return syserror("Failed to post receive");
+                return;
+            error(SYS, "failed to post receive");
         }
     }
-    return 1;
 }
 
 
 /*
  * Post n RDMA requests.
  */
-static int
+static void
 ib_post_rdma(IBDEV *ibdev, OPCODE opcode, int n)
 {
     struct ibv_sge sge ={
@@ -2113,15 +1881,14 @@ ib_post_rdma(IBDEV *ibdev, OPCODE opcode, int n)
     while (n--) {
         if (ibv_post_send(ibdev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
-                return 1;
-            return syserror("Failed to post %s", opcode_name(wr.opcode));
+                return;
+            error(SYS, "failed to post %s", opcode_name(wr.opcode));
         }
         if (opcode != IBV_WR_RDMA_READ) {
             LStat.s.no_bytes += Req.msg_size;
             LStat.s.no_msgs++;
         }
     }
-    return 1;
 }
 
 
@@ -2132,29 +1899,36 @@ static int
 ib_poll(IBDEV *ibdev, struct ibv_wc *wc, int nwc)
 {
     int n;
-    char *msg;
 
     if (!Req.poll_mode && !Finished) {
         void *ectx;
         struct ibv_cq *ecq;
 
         if (ibv_get_cq_event(ibdev->channel, &ecq, &ectx) != SUCCESS0)
-            {msg = "failed to get CQ event"; goto err;}
+            return maybe(0, "failed to get CQ event");
         if (ecq != ibdev->cq)
-            {msg = "CQ event for unknown CQ"; goto err;}
+            error(0, "CQ event for unknown CQ");
         if (ibv_req_notify_cq(ibdev->cq, 0) != SUCCESS0)
-            {msg = "failed to request CQ notification"; goto err;}
+            return maybe(0, "failed to request CQ notification");
     }
     n = ibv_poll_cq(ibdev->cq, nwc, wc);
     if (n < 0)
-        {msg = "CQ poll failed"; goto err;}
+        return maybe(0, "CQ poll failed");
     return n;
+}
 
-err:
+
+/*
+ * We encountered an error in a system call which might simply have been
+ * interrupted by the alarm that signaled completion of the test.  Generate the
+ * error if appropriate or return the requested value.
+ */
+static int
+maybe(int val, char *msg)
+{
     if (Finished && errno == EINTR)
-        return 0;
-    syserror(msg);
-    return -1;
+        return val;
+    error(SYS, msg);
 }
 
 
@@ -2189,12 +1963,11 @@ dec_ibcon(IBCON *host)
 /*
  * Handle a CQ error and return true if it is recoverable.
  */
-static int
+static void
 do_error(int status, uint64_t *errors)
 {
     ++*errors;
     cq_error(status);
-    return 0;
 }
 
 
@@ -2206,13 +1979,10 @@ cq_error(int status)
 {
     int i;
 
-    for (i = 0; i < cardof(CQErrors); ++i) {
-        if (CQErrors[i].value == status) {
-            error("%s failed: %s", TestName, CQErrors[i].name);
-            return;
-        }
-    }
-    error("%s failed: CQ error %d", TestName, status);
+    for (i = 0; i < cardof(CQErrors); ++i)
+        if (CQErrors[i].value == status)
+            error(0, "%s failed: %s", TestName, CQErrors[i].name);
+    error(0, "%s failed: CQ error %d", TestName, status);
 }
 
 

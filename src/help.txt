@@ -209,27 +209,31 @@ Tests -RDMA
         conf                    Show configuration
         quit                    Cause the server to quit
     Socket Based
+        rds_bw                  RDS streaming one way bandwidth
+        rds_lat                 RDS one way latency
+        sctp_bw                 SCTP streaming one way bandwidth
+        sctp_lat                SCTP one way latency
+        sdp_bw                  SDP streaming one way bandwidth
+        sdp_lat                 SDP one way latency
         tcp_bw                  TCP streaming one way bandwidth
         tcp_lat                 TCP one way latency
         udp_bw                  UDP streaming one way bandwidth
         udp_lat                 UDP one way latency
-        sdp_bw                  SDP streaming one way bandwidth
-        sdp_lat                 SDP one way latency
-        rds_bw                  RDS streaming one way bandwidth
-        rds_lat                 RDS one way latency
 Tests +RDMA
     Miscellaneous
         conf                    Show configuration
         quit                    Cause the server to quit
     Socket Based
+        rds_bw                  RDS streaming one way bandwidth
+        rds_lat                 RDS one way latency
+        sctp_bw                 SCTP streaming one way bandwidth
+        sctp_lat                SCTP one way latency
+        sdp_bw                  SDP streaming one way bandwidth
+        sdp_lat                 SDP one way latency
         tcp_bw                  TCP streaming one way bandwidth
         tcp_lat                 TCP one way latency
         udp_bw                  UDP streaming one way bandwidth
         udp_lat                 UDP one way latency
-        sdp_bw                  SDP streaming one way bandwidth
-        sdp_lat                 SDP one way latency
-        rds_bw                  RDS streaming one way bandwidth
-        rds_lat                 RDS one way latency
     RDMA Send/Receive
         ud_bw                   UD streaming one way bandwidth
         ud_bi_bw                UD streaming two way bandwidth
@@ -269,6 +273,96 @@ quit
         None
     Description
         Causes the server to quit.
+rds_bw
+    Purpose
+        RDS streaming one way bandwidth
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        The client repeatedly sends messages to the server while the server
+        notes how many were received.
+rds_lat
+    Purpose
+        RDS one way latency
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        A ping pong latency test where the server and client exchange messages
+        repeatedly using RDS sockets.
+sctp_bw
+    Purpose
+        SCTP streaming one way bandwidth
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        The client repeatedly sends messages to the server while the server
+        notes how many were received.
+sctp_lat
+    Purpose
+        SCTP one way latency
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        A ping pong latency test where the server and client exchange messages
+        repeatedly using STCP sockets.
+sdp_bw
+    Purpose
+        SDP streaming one way bandwidth
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        The client repeatedly sends messages to the server while the server
+        notes how many were received.
+sdp_lat
+    Purpose
+        SDP one way latency
+    Common Options
+        --affinity PN (-a)          set processor affinity
+        --msg_size Size (-m)        set message size
+        --sock_buf_size Size (-S)   set socket buffer size
+        --time (-t)                 set test duration
+    Other Options
+        --listen_port, --port, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        A ping pong latency test where the server and client exchange messages
+        repeatedly using SDP sockets.
 tcp_bw
     Purpose
         TCP streaming one way bandwidth
@@ -329,66 +423,6 @@ udp_lat
     Description
         A ping pong latency test where the server and client exchange messages
         repeatedly using UDP sockets.
-sdp_bw
-    Purpose
-        SDP streaming one way bandwidth
-    Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
-    Other Options
-        --listen_port, --port, --timeout
-    Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
-    Description
-        The client repeatedly sends messages to the server while the server
-        notes how many were received.
-sdp_lat
-    Purpose
-        SDP one way latency
-    Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
-    Other Options
-        --listen_port, --port, --timeout
-    Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
-    Description
-        A ping pong latency test where the server and client exchange messages
-        repeatedly using SDP sockets.
-rds_bw
-    Purpose
-        RDS streaming one way bandwidth
-    Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
-    Other Options
-        --listen_port, --port, --timeout
-    Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
-    Description
-        The client repeatedly sends messages to the server while the server
-        notes how many were received.
-rds_lat
-    Purpose
-        RDS one way latency
-    Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
-    Other Options
-        --listen_port, --port, --timeout
-    Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
-    Description
-        A ping pong latency test where the server and client exchange messages
-        repeatedly using RDS sockets.
 ud_bw +RDMA
     Purpose
         UD streaming one way bandwidth
