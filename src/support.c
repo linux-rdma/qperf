@@ -49,7 +49,12 @@
  * Configurable parameters.
  */
 #define ERROR_TIMEOUT   3               /* Error timeout in seconds */
-#define SYNCMESG        "SyN"           /* Synchronize message */
+
+
+/*
+ * For convenience.
+ */
+typedef void (SIGFUNC)(int signo, siginfo_t *siginfo, void *ucontext);
 
 
 /*
@@ -61,9 +66,9 @@ static double   get_seconds(void);
 static void     remote_failure_error(void);
 static char    *remote_name(void);
 static void     send_recv_mesg(int sr, char *item, int fd, char *buf, int len);
-static void     sig_alrm_remote_timed_out(int signo, siginfo_t *siginfo,
-                                                            void *ucontext);
-static void     timeout_set(void);
+static SIGFUNC  sig_alrm_remote_failure;
+static SIGFUNC  sig_alrm_die;
+static void     timeout_set(int seconds, SIGFUNC sigfunc);
 static void     timeout_end(void);
 
 
@@ -348,7 +353,9 @@ setsockopt_one(int fd, int optname)
 
 
 /*
- * An urgent message was received indicating an error on the other side.
+ * This is called when a SIGURG signal is received.  When the other side
+ * encounters an error, it sends an out-of-band TCP/IP message to us which
+ * causes a SIGURG signal to be received.
  */
 void
 urgent_error(void)
@@ -362,7 +369,7 @@ urgent_error(void)
 
     buf_app(&p, q, remote_name());
     buf_app(&p, q, ": ");
-    timeout_set();
+    timeout_set(ERROR_TIMEOUT, sig_alrm_remote_failure);
 
     for (;;) {
         int s = sockatmark(RemoteFD);
@@ -388,43 +395,12 @@ urgent_error(void)
 
 
 /*
- * Start timeout.
- */
-static void
-timeout_set(void)
-{
-    struct itimerval itimerval = {{0}};
-    struct sigaction act ={
-        .sa_sigaction = sig_alrm_remote_timed_out,
-        .sa_flags = SA_SIGINFO
-    };
-
-    setitimer(ITIMER_REAL, &itimerval, 0);
-    sigaction(SIGALRM, &act, 0);
-    itimerval.it_value.tv_sec = ERROR_TIMEOUT;
-    setitimer(ITIMER_REAL, &itimerval, 0);
-}
-
-
-/*
  * Remote end timed out in an attempt to find the error.
  */
 static void
-sig_alrm_remote_timed_out(int signo, siginfo_t *siginfo, void *ucontext)
+sig_alrm_remote_failure(int signo, siginfo_t *siginfo, void *ucontext)
 {
     remote_failure_error();
-}
-
-
-/*
- * End timeout.
- */
-static void
-timeout_end(void)
-{
-    struct itimerval itimerval = {{0}};
-
-    setitimer(ITIMER_REAL, &itimerval, 0);
 }
 
 
@@ -462,7 +438,7 @@ remote_name(void)
 /*
  * Print out an error message.  actions contain a set of flags that determine
  * what needs to get done.  If BUG is set, it is an internal error.  If SYS is
- * set, a system error is printed.  If DIE is set, we exit.
+ * set, a system error is printed.  If RET is set, we return rather than exit.
  */
 int
 error(int actions, char *fmt, ...)
@@ -472,26 +448,72 @@ error(int actions, char *fmt, ...)
     char *p = buffer;
     char *q = p + sizeof(buffer);
 
-    if (fmt) {
-        if ((actions & BUG) != 0)
-            buf_app(&p, q, "internal error: ");
-        va_start(alist, fmt);
-        p += vsnprintf(p, q-p, fmt, alist);
-        va_end(alist);
-        if ((actions & SYS) != 0) {
-            buf_app(&p, q, ": ");
-            buf_app(&p, q, strerror(errno));
-        }
-        buf_end(&p, q);
-        fwrite(buffer, 1, p+1-buffer, stdout);
-        if (RemoteFD >= 0) {
-            send(RemoteFD, "#", 1, MSG_OOB);
-            write(RemoteFD, buffer, p-buffer);
-        }
+    if ((actions & BUG) != 0)
+        buf_app(&p, q, "internal error: ");
+    va_start(alist, fmt);
+    p += vsnprintf(p, q-p, fmt, alist);
+    va_end(alist);
+    if ((actions & SYS) != 0) {
+        buf_app(&p, q, ": ");
+        buf_app(&p, q, strerror(errno));
     }
-    if ((actions & RET) == 0)
-        die();
+    buf_end(&p, q);
+    fwrite(buffer, 1, p+1-buffer, stdout);
+    if ((actions & RET) != 0)
+        return 0;
+
+    if (RemoteFD >= 0) {
+        send(RemoteFD, "#", 1, MSG_OOB);
+        write(RemoteFD, buffer, p-buffer);
+        shutdown(RemoteFD, SHUT_WR);
+        timeout_set(ERROR_TIMEOUT, sig_alrm_die);
+        while (read(RemoteFD, buffer, sizeof(buffer)) > 0)
+            ;
+    }
+    die();
     return 0;
+}
+
+
+/*
+ * Remote end timed out while waiting for acknowledgement that it received
+ * error.
+ */
+static void
+sig_alrm_die(int signo, siginfo_t *siginfo, void *ucontext)
+{
+    die();
+}
+
+
+/*
+ * Start timeout.
+ */
+static void
+timeout_set(int seconds, SIGFUNC sigfunc)
+{
+    struct itimerval itimerval = {{0}};
+    struct sigaction act ={
+        .sa_sigaction = sigfunc,
+        .sa_flags = SA_SIGINFO
+    };
+
+    setitimer(ITIMER_REAL, &itimerval, 0);
+    sigaction(SIGALRM, &act, 0);
+    itimerval.it_value.tv_sec = seconds;
+    setitimer(ITIMER_REAL, &itimerval, 0);
+}
+
+
+/*
+ * End timeout.
+ */
+static void
+timeout_end(void)
+{
+    struct itimerval itimerval = {{0}};
+
+    setitimer(ITIMER_REAL, &itimerval, 0);
 }
 
 

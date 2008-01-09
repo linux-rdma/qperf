@@ -54,27 +54,28 @@
 /*
  * Function prototypes.
  */
-static void     client_get_hosts(void);
-static void     client_init(int *fd);
+static void     client_get_hosts(char *lhost, char *rhost);
 static void     connect_tcp(char *server, char *port, SS *addr,
                                                     socklen_t *len, int *fd);
 static uint32_t decode_port(uint32_t *p);
 static void     encode_port(uint32_t *p, uint32_t port);
-static void     get_sock_ip(SA *saptr, int salen, char *ip, int n);
-static void     get_socket_port(int fd, uint32_t *port);
-static void     getaddrinfo_rds(int serverflag,
-                                            int port, struct addrinfo **aipp);
+static void     get_socket_ip(SA *saptr, int salen, char *ip, int n);
+static int      get_socket_port(int fd);
+static int      init(void);
+static void     qgetnameinfo(SA *sa, socklen_t salen, char *host,
+                    size_t hostlen, char *serv, size_t servlen, int flags);
+static int      rds_socket(char *host, int port);
+static void     rds_makeaddr(SS *addr, socklen_t *len, char *host, int port);
 static void     set_parameters(long msgSize);
-static void     server_get_host(void);
-static void     server_init(int *fd);
+static void     server_get_hosts(char *lhost, char *rhost);
 static void     set_socket_buffer_size(int fd);
 
 
 /*
  * Static variables.
  */
-char LHost[NI_MAXHOST];
-char RHost[NI_MAXHOST];
+static SS        RAddr;
+static socklen_t RLen;
 
 
 /*
@@ -84,14 +85,15 @@ void
 run_client_rds_bw(void)
 {
     char *buf;
-    int sockFD;
+    int sockfd;
 
     set_parameters(8*1024);
-    client_init(&sockFD);
+    client_send_request();
+    sockfd = init();
     buf = qmalloc(Req.msg_size);
     sync_test();
     while (!Finished) {
-        int n = write(sockFD, buf, Req.msg_size);
+        int n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&RAddr, RLen);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -104,8 +106,8 @@ run_client_rds_bw(void)
     stop_test_timer();
     exchange_results();
     free(buf);
-    close(sockFD);
-    show_results(BANDWIDTH_SR);
+    close(sockfd);
+    show_results(BANDWIDTH);
 }
 
 
@@ -115,14 +117,14 @@ run_client_rds_bw(void)
 void
 run_server_rds_bw(void)
 {
-    int sockFD;
-    char *buf = 0;
+    char *buf;
+    int sockfd;
 
-    server_init(&sockFD);
+    sockfd = init();
     sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
-        int n = recv(sockFD, buf, Req.msg_size, 0);
+        int n = read(sockfd, buf, Req.msg_size);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -135,7 +137,7 @@ run_server_rds_bw(void)
     stop_test_timer();
     exchange_results();
     free(buf);
-    close(sockFD);
+    close(sockfd);
 }
 
 
@@ -146,14 +148,15 @@ void
 run_client_rds_lat(void)
 {
     char *buf;
-    int sockFD;
+    int sockfd;
 
     set_parameters(1);
-    client_init(&sockFD);
+    client_send_request();
+    sockfd = init();
     buf = qmalloc(Req.msg_size);
     sync_test();
     while (!Finished) {
-        int n = write(sockFD, buf, Req.msg_size);
+        int n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&RAddr, RLen);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -163,7 +166,7 @@ run_client_rds_lat(void)
         LStat.s.no_bytes += n;
         LStat.s.no_msgs++;
 
-        n = read(sockFD, buf, Req.msg_size);
+        n = read(sockfd, buf, Req.msg_size);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -176,7 +179,7 @@ run_client_rds_lat(void)
     stop_test_timer();
     exchange_results();
     free(buf);
-    close(sockFD);
+    close(sockfd);
     show_results(LATENCY);
 }
 
@@ -190,14 +193,13 @@ run_server_rds_lat(void)
     char *buf;
     int sockfd;
 
-    server_init(&sockfd);
+    sockfd = init();
     sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
-        struct sockaddr_storage clientAddr;
-        socklen_t clientLen = sizeof(clientAddr);
-        int n = recvfrom(sockfd, buf, Req.msg_size, 0,
-                         (SA *)&clientAddr, &clientLen);
+        SS raddr;
+        socklen_t rlen = sizeof(raddr);
+        int n = recvfrom(sockfd, buf, Req.msg_size, 0, (SA *)&raddr, &rlen);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -207,7 +209,7 @@ run_server_rds_lat(void)
         LStat.r.no_bytes += n;
         LStat.r.no_msgs++;
 
-        n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&clientAddr, clientLen);
+        n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&raddr, rlen);
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -241,104 +243,29 @@ set_parameters(long msgSize)
 
 
 /*
- * Socket client initialization.
+ * Initialize and return open socket.
  */
-static void
-client_init(int *fd)
+static int
+init(void)
 {
+    int sockfd;
+    uint32_t lport;
     uint32_t rport;
-    struct addrinfo *ai, *ailist;
+    char lhost[NI_MAXHOST];
+    char rhost[NI_MAXHOST];
 
-    client_send_request();
-    client_get_hosts();
-    recv_mesg(&rport, sizeof(rport), "port");
+    if (is_client())
+        client_get_hosts(lhost, rhost);
+    else
+        server_get_hosts(lhost, rhost);
+    sockfd = rds_socket(lhost, Req.port);
+    lport = get_socket_port(sockfd);
+    encode_port(&lport, lport);
+    send_mesg(&lport, sizeof(lport), "RDS port");
+    recv_mesg(&rport, sizeof(rport), "RDS port");
     rport = decode_port(&rport);
-    getaddrinfo_rds(0, rport, &ailist);
-    for (ai = ailist; ai; ai = ai->ai_next) {
-        if (!ai->ai_family)
-            continue;
-        *fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (connect(*fd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
-            break;
-        close(*fd);
-    }
-    freeaddrinfo(ailist);
-    if (!ai)
-        error(0, "could not make RDS connection to server");
-    if (Debug) {
-        uint32_t lport;
-        get_socket_port(*fd, &lport);
-        debug("sending from RDS port %d to %d", lport, rport);
-    }
-}
-
-
-/*
- * Datagram server initialization.
- */
-static void
-server_init(int *fd)
-{
-    uint32_t port;
-    struct addrinfo *ai, *ailist;
-    int sockfd = -1;
-
-    server_get_host();
-    getaddrinfo_rds(1, Req.port, &ailist);
-    for (ai = ailist; ai; ai = ai->ai_next) {
-        if (!ai->ai_family)
-            continue;
-        sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (sockfd < 0)
-            continue;
-        setsockopt_one(sockfd, SO_REUSEADDR);
-        if (bind(sockfd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
-            break;
-        close(sockfd);
-    }
-    freeaddrinfo(ailist);
-    if (!ai)
-        error(0, "unable to make RDS socket");
-
-    set_socket_buffer_size(sockfd);
-    get_socket_port(sockfd, &port);
-    encode_port(&port, port);
-    send_mesg(&port, sizeof(port), "port");
-    *fd = sockfd;
-}
-
-
-/*
- * A version of getaddrinfo that takes a numeric port and prints out an error
- * on failure.
- */
-static void
-getaddrinfo_rds(int serverflag, int port, struct addrinfo **aipp)
-{
-    int stat;
-    char *service;
-    struct addrinfo *aip;
-    struct addrinfo hints ={
-        .ai_flags    = AI_NUMERICSERV,
-        .ai_family   = AF_UNSPEC,
-        .ai_socktype = SOCK_DGRAM
-    };
-
-    if (serverflag)
-        hints.ai_flags |= AI_PASSIVE;
-
-    service = qasprintf("%d", port);
-    stat = getaddrinfo(serverflag ? 0 : ServerName, service, &hints, aipp);
-    free(service);
-    if (stat != SUCCESS0)
-        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
-    for (aip = *aipp; aip; aip = aip->ai_next) {
-        if (aip->ai_socktype == SOCK_DGRAM && aip->ai_family == AF_INET) {
-            aip->ai_family = AF_INET_RDS;
-            aip->ai_socktype = SOCK_SEQPACKET;
-        } else
-            aip->ai_family = 0;
-    }
+    rds_makeaddr(&RAddr, &RLen, rhost, rport);
+    return sockfd;
 }
 
 
@@ -347,11 +274,10 @@ getaddrinfo_rds(int serverflag, int port, struct addrinfo **aipp)
  * host.
  */
 static void
-server_get_host(void)
+server_get_hosts(char *lhost, char *rhost)
 {
     int fd, lfd;
     uint32_t port;
-    char rhost[NI_MAXHOST];
     struct sockaddr_in laddr, raddr;
     socklen_t rlen;
 
@@ -367,9 +293,9 @@ server_get_host(void)
     if (bind(lfd, (SA *)&laddr, sizeof(laddr)) < 0)
         error(SYS, "bind failed");
 
-    get_socket_port(lfd, &port);
+    port = get_socket_port(lfd);
     encode_port(&port, port);
-    send_mesg(&port, sizeof(port), "port");
+    send_mesg(&port, sizeof(port), "TCP IPv4 server port");
 
     if (listen(lfd, 1) < 0)
         error(SYS, "listen failed");
@@ -379,9 +305,9 @@ server_get_host(void)
     if (fd < 0)
         error(SYS, "accept failed");
     close(lfd);
-    get_sock_ip((SA *)&raddr, rlen, rhost, sizeof(rhost));
-    send_mesg(rhost, NI_MAXHOST, "IP");
-    recv_mesg(LHost, NI_MAXHOST, "IP");
+    get_socket_ip((SA *)&raddr, rlen, rhost, NI_MAXHOST);
+    send_mesg(rhost, NI_MAXHOST, "client IP");
+    recv_mesg(lhost, NI_MAXHOST, "server IP");
     close(fd);
 }
 
@@ -391,7 +317,7 @@ server_get_host(void)
  * and the remote host.
  */
 static void
-client_get_hosts(void)
+client_get_hosts(char *lhost, char *rhost)
 {
     SS raddr;
     socklen_t rlen;
@@ -399,15 +325,53 @@ client_get_hosts(void)
     uint32_t port;
     int fd = -1;
 
-    recv_mesg(&port, sizeof(port), "port");
+    recv_mesg(&port, sizeof(port), "TCP IPv4 server port");
     port = decode_port(&port);
     service = qasprintf("%d", port);
     connect_tcp(ServerName, service, &raddr, &rlen, &fd);
     free(service);
-    get_sock_ip((SA *)&raddr, rlen, RHost, NI_MAXHOST);
-    send_mesg(RHost, NI_MAXHOST, "IP");
-    recv_mesg(LHost, NI_MAXHOST, "IP");
+    get_socket_ip((SA *)&raddr, rlen, rhost, NI_MAXHOST);
+    send_mesg(rhost, NI_MAXHOST, "server IP");
+    recv_mesg(lhost, NI_MAXHOST, "client IP");
     close(fd);
+}
+
+
+/*
+ * Make a RDS socket.
+ */
+static int
+rds_socket(char *host, int port)
+{
+    int sockfd;
+    SS sockaddr;
+    socklen_t socklen;
+
+    sockfd = socket(AF_INET_RDS, SOCK_SEQPACKET, 0);
+    if (sockfd < 0)
+        error(SYS, "socket failed");
+    setsockopt_one(sockfd, SO_REUSEADDR);
+    rds_makeaddr(&sockaddr, &socklen, host, port);
+    if (bind(sockfd, (SA *)&sockaddr, socklen) != SUCCESS0)
+        error(SYS, "bind failed");
+    set_socket_buffer_size(sockfd);
+    return sockfd;
+}
+
+
+/*
+ * Make a RDS address.
+ */
+static void
+rds_makeaddr(SS *addr, socklen_t *len, char *host, int port)
+{
+    struct sockaddr_in *sap = (struct sockaddr_in *)addr;
+
+    memset(sap, 0, sizeof(*sap));
+    sap->sin_family = AF_INET;
+    inet_pton(AF_INET, host, &sap->sin_addr.s_addr);
+    sap->sin_port = htons(port);
+    *len = sizeof(struct sockaddr_in);
 }
 
 
@@ -452,20 +416,21 @@ connect_tcp(char *server, char *port, SS *addr, socklen_t *len, int *fd)
  * Given an open socket, return the port associated with it.  There must be a
  * more efficient way to do this that is portable.
  */
-static void
-get_socket_port(int fd, uint32_t *port)
+static int
+get_socket_port(int fd)
 {
+    int port;
     char p[NI_MAXSERV];
-    struct sockaddr_storage sa;
+    SS sa;
     socklen_t salen = sizeof(sa);
 
     if (getsockname(fd, (SA *)&sa, &salen) < 0)
         error(SYS, "getsockname failed");
-    if (getnameinfo((SA *)&sa, salen, 0, 0, p, sizeof(p), NI_NUMERICSERV) < 0)
-        error(SYS, "getnameinfo failed");
-    *port = atoi(p);
+    qgetnameinfo((SA *)&sa, salen, 0, 0, p, sizeof(p), NI_NUMERICSERV);
+    port = atoi(p);
     if (!port)
         error(SYS, "invalid port");
+    return port;
 }
 
 
@@ -473,9 +438,20 @@ get_socket_port(int fd, uint32_t *port)
  * Given a socket, return its IP address.
  */
 static void
-get_sock_ip(SA *saptr, int salen, char *ip, int n)
+get_socket_ip(SA *saptr, int salen, char *ip, int n)
 {
-    int stat = getnameinfo(saptr, salen, ip, n, 0, 0, NI_NUMERICHOST);
+    qgetnameinfo(saptr, salen, ip, n, 0, 0, NI_NUMERICHOST);
+}
+
+
+/*
+ * Call getnameinfo and exit with an error on failure.
+ */
+static void
+qgetnameinfo(SA *sa, socklen_t salen, char *host, size_t hostlen,
+                                      char *serv, size_t servlen, int flags)
+{
+    int stat = getnameinfo(sa, salen, host, hostlen, serv, servlen, flags);
     if (stat < 0)
         error(0, "getnameinfo failed: %s", gai_strerror(stat));
 }
