@@ -87,6 +87,8 @@ run_client_rds_bw(void)
     char *buf;
     int sockfd;
 
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     set_parameters(8*1024);
     client_send_request();
     sockfd = init();
@@ -133,6 +135,8 @@ run_server_rds_bw(void)
         }
         LStat.r.no_bytes += n;
         LStat.r.no_msgs++;
+        if (Req.access_recv)
+            touch_data(buf, Req.msg_size);
     }
     stop_test_timer();
     exchange_results();

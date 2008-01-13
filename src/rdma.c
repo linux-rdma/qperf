@@ -372,6 +372,8 @@ run_server_rc_lat(void)
 void
 run_client_rc_rdma_read_bw(void)
 {
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     par_use(L_RD_ATOMIC);
     par_use(R_RD_ATOMIC);
     ib_params_msgs(K64, 1);
@@ -1219,6 +1221,8 @@ ib_client_rdma_bw(int transport, OPCODE opcode)
                     LStat.r.no_msgs++;
                     LStat.rem_s.no_bytes += Req.msg_size;
                     LStat.rem_s.no_msgs++;
+                    if (Req.access_recv)
+                        touch_data(ibdev.buffer, Req.msg_size);
                 }
             } else
                 do_error(status, &LStat.s.no_errs);

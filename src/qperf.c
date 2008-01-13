@@ -224,6 +224,7 @@ static void     view_time(int type, char *pref, char *name, double value);
 static int      ListenPort      = 19765;
 static int      Precision       = 3;
 static int      ServerTimeout   = 5;
+static int      UseBitsPerSec   = 0;
 
 
 /*
@@ -390,10 +391,13 @@ OPTION Options[] ={
     {   "-rT",                0, &opt_time, R_TIMEOUT                        },
     { "--server_timeout",     0, &opt_misc, 's', 't'                         },
     {   "-st",                0, &opt_misc, 's', 't'                         },
-    { "--unify_nodes",        0, &opt_misc, 'U'                              },
-    {   "-U",                 0, &opt_misc, 'U'                              },
-    { "--unify_units",        0, &opt_misc, 'u'                              },
-    {   "-u",                 0, &opt_misc, 'u'                              },
+    { "--unify_nodes",        0, &opt_misc, 'u', 'n'                         },
+    {   "-un",                0, &opt_misc, 'u', 'n'                         },
+    { "--unify_units",        0, &opt_misc, 'u', 'u'                         },
+    {   "-uu",                0, &opt_misc, 'u', 'u'                         },
+    {   "-u",                 0, &opt_misc, 'u', 'u'         /* obsolete */  },
+    { "--use_bits_per_sec",   0, &opt_misc, 'u', 'b'                         },
+    {   "-ub",                0, &opt_misc, 'u', 'b'                         },
     { "--verbose",            0, &opt_misc, 'v'                              },
     {   "-v",                 0, &opt_misc, 'v'                              },
     { "--verbose_conf",       0, &opt_misc, 'v', 'c'                         },
@@ -700,9 +704,6 @@ opt_misc(OPTION *option, char ***argvp)
     case 'e':
         Precision = arg_long(argvp);
         return;
-    case 'u':
-        UnifyUnits = 1;
-        break;
     case 'v':
         VerboseConf = 1;
         VerboseStat = 1;
@@ -715,9 +716,6 @@ opt_misc(OPTION *option, char ***argvp)
     case 'H':
         ServerName = arg_strn(argvp);
         return;
-    case 'U':
-        UnifyNodes = 1;
-        break;
     case 'W':
         Wait = arg_time(argvp);
         return;
@@ -727,6 +725,15 @@ opt_misc(OPTION *option, char ***argvp)
     case ('s') with ('t'):
         ServerTimeout = arg_time(argvp);
         return;
+    case ('u') with ('b'):
+        UseBitsPerSec = 1;
+        break;
+    case ('u') with ('n'):
+        UnifyNodes = 1;
+        break;
+    case ('u') with ('u'):
+        UnifyUnits = 1;
+        break;
     case ('v') with ('c'):
         VerboseConf = 1;
         break;
@@ -2008,7 +2015,7 @@ static void
 view_cost(int type, char *pref, char *name, double value)
 {
     int n = 0;
-    static char *tab[] ={ "ns/GB", "us/GB", "ms/GB", "sec/GB" };
+    char *tab[] ={ "ns/GB", "us/GB", "ms/GB", "sec/GB" };
 
     value *=  1E9;
     if (!verbose(type, value))
@@ -2043,7 +2050,7 @@ static void
 view_rate(int type, char *pref, char *name, double value)
 {
     int n = 0;
-    static char *tab[] ={ "/sec", "K/sec", "M/sec", "G/sec", "T/sec" };
+    char *tab[] ={ "/sec", "K/sec", "M/sec", "G/sec", "T/sec" };
 
     if (!verbose(type, value))
         return;
@@ -2065,7 +2072,7 @@ view_long(int type, char *pref, char *name, long long value)
 {
     int n = 0;
     double val = value;
-    static char *tab[] ={ "", "thousand", "million", "billion", "trillion" };
+    char *tab[] ={ "", "thousand", "million", "billion", "trillion" };
 
     if (!verbose(type, val))
         return;
@@ -2085,15 +2092,25 @@ view_long(int type, char *pref, char *name, long long value)
 static void
 view_band(int type, char *pref, char *name, double value)
 {
-    int n = 0;
-    static char *tab[] ={
-        "bytes/sec", "KB/sec", "MB/sec", "GB/sec", "TB/sec"
-    };
+    int n, s;
+    char **tab;
 
     if (!verbose(type, value))
         return;
+    if (UseBitsPerSec) {
+        char *t[] ={ "bits/sec", "Kb/sec", "Mb/sec", "Gb/sec", "Tb/sec" };
+        s = cardof(t);
+        tab = t;
+        value *= 8;
+    } else {
+        char *t[] ={ "bytes/sec", "KB/sec", "MB/sec", "GB/sec", "TB/sec" };
+        s = cardof(t);
+        tab = t;
+    }
+
+    n = 0;
     if (!UnifyUnits) {
-        while (value >= 1000 && n < (int)cardof(tab)-1) {
+        while (value >= 1000 && n < s-1) {
             value /= 1000;
             ++n;
         }
@@ -2110,7 +2127,7 @@ view_size(int type, char *pref, char *name, long long value)
 {
     int n = 0;
     double val = value;
-    static char *tab[] ={ "bytes", "KB", "MB", "GB", "TB" };
+    char *tab[] ={ "bytes", "KB", "MB", "GB", "TB" };
 
     if (!verbose(type, val))
         return;
@@ -2136,7 +2153,7 @@ nice_1024(char *pref, char *name, long long value)
     char *altn;
     int n = 0;
     long long val = value;
-    static char *tab[] ={ "KiB", "MiB", "GiB", "TiB" };
+    char *tab[] ={ "KiB", "MiB", "GiB", "TiB" };
 
     if (val < 1024 || val % 1024)
         return 0;
@@ -2173,7 +2190,7 @@ static void
 view_time(int type, char *pref, char *name, double value)
 {
     int n = 0;
-    static char *tab[] ={ "ns", "us", "ms", "sec" };
+    char *tab[] ={ "ns", "us", "ms", "sec" };
 
     value *= 1E9;
     if (!verbose(type, value))

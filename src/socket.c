@@ -92,6 +92,8 @@ static void     stream_server_lat(KIND kind);
 void
 run_client_sctp_bw(void)
 {
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     ip_parameters(32*1024);
     stream_client_bw(K_SCTP);
 }
@@ -134,6 +136,8 @@ run_server_sctp_lat(void)
 void
 run_client_sdp_bw(void)
 {
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     ip_parameters(64*1024);
     stream_client_bw(K_SDP);
 }
@@ -176,6 +180,8 @@ run_server_sdp_lat(void)
 void
 run_client_tcp_bw(void)
 {
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     ip_parameters(64*1024);
     stream_client_bw(K_TCP);
 }
@@ -218,6 +224,8 @@ run_server_tcp_lat(void)
 void
 run_client_udp_bw(void)
 {
+    par_use(L_ACCESS_RECV);
+    par_use(R_ACCESS_RECV);
     ip_parameters(32*1024);
     datagram_client_bw(K_UDP);
 }
@@ -273,10 +281,9 @@ stream_client_bw(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
     }
     stop_test_timer();
     exchange_results();
@@ -305,10 +312,11 @@ stream_server_bw(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
+        if (Req.access_recv)
+            touch_data(buf, Req.msg_size);
     }
     stop_test_timer();
     exchange_results();
@@ -337,10 +345,9 @@ stream_client_lat(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
 
         n = recv_full(sockFD, buf, Req.msg_size);
         if (Finished)
@@ -348,10 +355,9 @@ stream_client_lat(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
     }
     stop_test_timer();
     exchange_results();
@@ -380,10 +386,9 @@ stream_server_lat(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
 
         n = send_full(sockFD, buf, Req.msg_size);
         if (Finished)
@@ -391,10 +396,9 @@ stream_server_lat(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
     }
     stop_test_timer();
     exchange_results();
@@ -422,10 +426,9 @@ datagram_client_bw(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
     }
     stop_test_timer();
     exchange_results();
@@ -454,10 +457,11 @@ datagram_server_bw(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
+        if (Req.access_recv)
+            touch_data(buf, Req.msg_size);
     }
     stop_test_timer();
     exchange_results();
@@ -485,10 +489,9 @@ datagram_client_lat(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
 
         n = read(sockFD, buf, Req.msg_size);
         if (Finished)
@@ -496,10 +499,9 @@ datagram_client_lat(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
     }
     stop_test_timer();
     exchange_results();
@@ -531,10 +533,9 @@ datagram_server_lat(KIND kind)
         if (n < 0) {
             LStat.r.no_errs++;
             continue;
-        } else {
-            LStat.r.no_bytes += n;
-            LStat.r.no_msgs++;
         }
+        LStat.r.no_bytes += n;
+        LStat.r.no_msgs++;
 
         n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&clientAddr, clientLen);
         if (Finished)
@@ -542,10 +543,9 @@ datagram_server_lat(KIND kind)
         if (n < 0) {
             LStat.s.no_errs++;
             continue;
-        } else {
-            LStat.s.no_bytes += n;
-            LStat.s.no_msgs++;
         }
+        LStat.s.no_bytes += n;
+        LStat.s.no_msgs++;
     }
     stop_test_timer();
     exchange_results();

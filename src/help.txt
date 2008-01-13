@@ -18,8 +18,7 @@ Author
     Written by Johann George.
 Bugs
     None of the RDMA tests are available if qperf is compiled without the RDMA
-    libraries.  The -f and the -Ar options are not yet implemented in most of
-    the tests.
+    libraries.  The -f option is not yet implemented in many of the tests.
 Examples
     In these examples, we first run qperf on a node called myserver in server
     mode by invoking it with no arguments.  In all the subsequent examples, we
@@ -36,11 +35,11 @@ Examples
         * To measure RDMA UC bi-directional bandwidth:
             qperf myserver rc_bi_bw
 Opts
-    --access_recv Mode (-Ar)            Access receive data
+    --access_recv OnOff (-Ar)           Access received data
     --affinity PN (-a)                  Set processor affinity
       --loc_affinity PN (-la)           Set local processor affinity
       --rem_affinity PN (-ra)           Set remote processor affinity
-    --flip Mode (-f)                    Flip sender and receiver
+    --flip OnOff (-f)                   Flip sender and receiver
     --help Topic (-h)                   Get more information on a topic
     --host Node (-H)                    Identify server node
     --id Device:Port (-i)               Set IB device and port
@@ -50,9 +49,9 @@ Opts
     --msg_size Size (-m)                Set message size
     --mtu_size Size (-M)                Set MTU size (IB only)
     --no_msgs Count (-n)                Send Count messages
-    --poll Mode (-P)                    Set polling mode on/off
-      --loc_poll Mode (-lP)             Set local polling mode on/off
-      --rem_poll Mode (-lP)             Set remote polling mode on/off
+    --poll OnOff (-P)                   Set polling mode on/off
+      --loc_poll OnOff (-lP)            Set local polling mode on/off
+      --rem_poll OnOff (-lP)            Set remote polling mode on/off
     --port Port (-p)                    Set TCP port used for tests
     --precision Digits (-e)             Set precision reported
     --rate (-r)                         Set IB static rate
@@ -68,8 +67,9 @@ Opts
     --timeout Time (-T)                 Set timeout
       --loc_timeout Time (-lT)          Set local timeout
       --rem_timeout Time (-rT)          Set remote timeout
-    --unify_nodes (-U)                  Unify nodes
-    --unify_units (-u)                  Unify units
+    --unify_nodes (-un)                 Unify nodes
+    --unify_units (-uu)                 Unify units
+    --use_bits_per_sec (-ub)            Use bits/sec rather than bytes/sec
     --verbose (-v)                      Verbose; turn on all of -v[cstu]
       --verbose_conf (-vc)              Show configuration information
       --verbose_stat (-vs)              Show statistical information
@@ -83,9 +83,10 @@ Opts
     --version (-V)                      Print out version
     --wait Time (-W)                    Set time to wait for server
 Options
-    --access_recv Mode (-Ar)
-          If Mode is non-zero, data is accessed once received.  Otherwise, data
-          is ignored.  By default, Mode is 0.
+    --access_recv OnOff (-Ar)
+          If OnOff is non-zero, data is accessed once received.  Otherwise,
+          data is ignored.  By default, OnOff is 0.  This helps to mimic some
+          applications.
     --affinity PN (-a)
           Set processor affinity to PN.  Processors are numbered sequentially
           from 0.  If PN is "any", any processor is allowed otherwise the
@@ -94,7 +95,7 @@ Options
           Set local processor affinity to PN.
       --rem_affinity PN (-ra)
           Set remote processor affinity to PN.
-    --flip Mode (-f)
+    --flip OnOff (-f)
           Cause sender and receiver to play opposite roles.
     --help Topic (-h)
           Print out information about Topic.  To see the list of topics, type
@@ -103,11 +104,11 @@ Options
           Run test between the current node and the qperf running on node Host.
           This can also be specified as the first non-option argument.
     --id Device:Port (-i)
-          Use InfiniBand Device and Port.
+          Use RDMA Device and Port.
       --loc_id Device:Port (-li)
-          Use local InfiniBand Device and Port.
+          Use local RDMA Device and Port.
       --rem_id Device:Port (-ri)
-          Use remote InfiniBand Device and Port.
+          Use remote RDMA Device and Port.
     --listen_port Port (-lp)
           Set the port we listen on to ListenPort.  This must be set to the
           same port on both the server and client machines.  The default value
@@ -124,13 +125,13 @@ Options
           specified in the same manner as the --msg_size option.
     --no_msgs N (-n)
         Set test duration by number of messages sent instead of time.
-    --poll Mode (-P)
+    --poll OnOff (-P)
           Turn polling mode on or off.  This is only relevant to the RDMA tests
-          and determines whether they poll or wait.  If Mode is 0, they wait;
+          and determines whether they poll or wait.  If OnOff is 0, they wait;
           otherwise they poll.
-      --loc_poll Mode (-lP)
+      --loc_poll OnOff (-lP)
           Locally turn polling mode on or off.
-      --rem_poll Mode (-rP)
+      --rem_poll OnOff (-rP)
           Remotely turn polling mode on or off.
     --port Port (-p)
           Use Port to run the socket tests.  This is different from
@@ -173,12 +174,14 @@ Options
           Set local timeout to Time.
       --rem_timeout Time (-rT)
           Set local timeout to Time.
-    --unify_nodes (-U)
+    --unify_nodes (-un)
           Unify the nodes.  Describe them in terms of local and remote rather
           than send and receive.
-    --unify_units (-u)
+    --unify_units (-uu)
           Unify the units that results are shown in.  Uses the lowest common
           denominator.  Helpful for scripts.
+    --use_bits_per_sec (-ub)
+        Use bits/sec rather than bytes/sec when displaying networking speed.
     --verbose (-v)
           Provide more detailed output.  Turns on -vc, -vs, -vt and -vu.
       --verbose_conf (-vc)
@@ -257,8 +260,8 @@ Tests +RDMA
         rc_compare_swap_mr      RC compare and swap messaging rate
         rc_fetch_add_mr         RC fetch and add messaging rate
     Verification
-        ver_rc_compare_swap     verify RC compare and swap
-        ver_rc_fetch_add        verify RC fetch and add
+        ver_rc_compare_swap     Verify RC compare and swap
+        ver_rc_fetch_add        Verify RC fetch and add
 conf
     Purpose
         Show configuration
@@ -277,14 +280,16 @@ rds_bw
     Purpose
         RDS streaming one way bandwidth
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly sends messages to the server while the server
         notes how many were received.
@@ -292,10 +297,10 @@ rds_lat
     Purpose
         RDS one way latency
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
@@ -307,14 +312,16 @@ sctp_bw
     Purpose
         SCTP streaming one way bandwidth
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly sends messages to the server while the server
         notes how many were received.
@@ -322,10 +329,10 @@ sctp_lat
     Purpose
         SCTP one way latency
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
@@ -337,14 +344,16 @@ sdp_bw
     Purpose
         SDP streaming one way bandwidth
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly sends messages to the server while the server
         notes how many were received.
@@ -352,10 +361,10 @@ sdp_lat
     Purpose
         SDP one way latency
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
@@ -367,14 +376,16 @@ tcp_bw
     Purpose
         TCP streaming one way bandwidth
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly sends messages to the server while the server
         notes how many were received.
@@ -382,10 +393,10 @@ tcp_lat
     Purpose
         TCP one way latency
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
@@ -397,14 +408,16 @@ udp_bw
     Purpose
         UDP streaming one way bandwidth
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly sends messages to the server while the server
         notes how many were received.
@@ -412,10 +425,10 @@ udp_lat
     Purpose
         UDP one way latency
     Common Options
-        --affinity PN (-a)          set processor affinity
-        --msg_size Size (-m)        set message size
-        --sock_buf_size Size (-S)   set socket buffer size
-        --time (-t)                 set test duration
+        --affinity PN (-a)          Set processor affinity
+        --msg_size Size (-m)        Set message size
+        --sock_buf_size Size (-S)   Set socket buffer size
+        --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
     Display Options
@@ -427,7 +440,7 @@ ud_bw +RDMA
     Purpose
         UD streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -435,7 +448,8 @@ ud_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client sends messages to the server who notes how many it received.
         The UD Send/Receive mechanism is used.
@@ -443,7 +457,7 @@ ud_bi_bw +RDMA
     Purpose
         UD streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -451,7 +465,8 @@ ud_bi_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         Both the client and server exchange messages with each other using the
         UD Send/Receive mechanism and note how many were received.
@@ -474,7 +489,7 @@ rc_bw +RDMA
     Purpose
         RC streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -482,7 +497,8 @@ rc_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client sends messages to the server who notes how many it received.
         The RC Send/Receive mechanism is used.
@@ -490,7 +506,7 @@ rc_bi_bw +RDMA
     Purpose
         RC streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -498,7 +514,8 @@ rc_bi_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         Both the client and server exchange messages with each other using the
         RC Send/Receive mechanism and note how many were received.
@@ -521,7 +538,7 @@ uc_bw +RDMA
     Purpose
         UC streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -529,7 +546,8 @@ uc_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client sends messages to the server who notes how many it received.
         The UC Send/Receive mechanism is used.
@@ -537,7 +555,7 @@ uc_bi_bw +RDMA
     Purpose
         UC streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access receive data
+        --access_recv OnOff (-Ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -545,7 +563,8 @@ uc_bi_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         Both the client and server exchange messages with each other using the
         UC Send/Receive mechanism and note how many were received.
@@ -568,14 +587,16 @@ rc_rdma_read_bw +RDMA
     Purpose
         RC RDMA read streaming one way bandwidth
     Common Options
-        --id Device:Port (-i)   Set IB device and port
-        --msg_size Size (-m)    Set message size
-        --poll OnOff (-P)       Set polling mode on/off
-        --time (-t)             Set test duration
+        --access_recv OnOff (-Ar)   Access received data
+        --id Device:Port (-i)       Set IB device and port
+        --msg_size Size (-m)        Set message size
+        --poll OnOff (-P)           Set polling mode on/off
+        --time (-t)                 Set test duration
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly performs RC RDMA Read operations and notes how
         many of them complete.
@@ -605,7 +626,8 @@ rc_rdma_write_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly performs RC RDMA Write operations and notes how
         many of them complete.
@@ -653,7 +675,8 @@ uc_rdma_write_bw +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         The client repeatedly performs UC RDMA Write operations and notes how
         many of them complete.
@@ -744,7 +767,8 @@ ver_rc_fetch_add +RDMA
     Other Options
         --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
     Display Options
-        --precision, --unify_nodes, --unify_units, --verbose
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
     Description
         Tests the RC Fetch and Add Atomic operation.  The server's memory
         location starts with zero and the client successively adds one.  The
