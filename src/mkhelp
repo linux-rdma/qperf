@@ -64,7 +64,7 @@ sub main() {
     while (<$iFile>) {
         chomp;
         s/\s+$//;
-        if (/^    /) {
+        if (/^    / or /^$/) {
             if ($keep) {
                 s///;
                 s/(["\\])/\\$1/g;

@@ -600,7 +600,7 @@ do_args(char *args[])
         if (arg[0] == '-') {
             OPTION *option = find_option(arg);
             if (!option)
-                error(0, "%s: bad option; try qperf --help", arg);
+                error(0, "%s: bad option; try: qperf --help options", arg);
             if (!option->server_valid)
                 isClient = 1;
             option->func(option, &args);
@@ -611,7 +611,7 @@ do_args(char *args[])
             else {
                 TEST *p = find_test(arg);
                 if (!p)
-                    error(0, "%s: bad test; try qperf --help", arg);
+                    error(0, "%s: bad test; try: qperf --help tests", arg);
                 client(p);
                 testSpecified = 1;
             }
@@ -625,8 +625,8 @@ do_args(char *args[])
             error(0, "you used a client only option but did not specify the "
                       "server name.\nDo you want to be a client or server?");
         if (find_test(ServerName))
-            error(0, "must specify host name first; try qperf --help");
-        error(0, "must specify a test type; try qperf --help");
+            error(0, "must specify host name first; try: qperf --help");
+        error(0, "must specify a test type; try: qperf --help");
     }
 }
 
