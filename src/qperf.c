@@ -202,6 +202,7 @@ static void     show_info(MEASURE measure);
 static void     show_rest(void);
 static void     show_used(void);
 static void     sig_alrm(int signo, siginfo_t *siginfo, void *ucontext);
+static void     sig_quit(int signo, siginfo_t *siginfo, void *ucontext);
 static void     sig_urg(int signo, siginfo_t *siginfo, void *ucontext);
 static char    *skip_colon(char *s);
 static void     start_test_timer(int seconds);
@@ -561,6 +562,9 @@ set_signals(void)
     sigaction(SIGALRM, &act, 0);
     sigaction(SIGPIPE, &act, 0);
 
+    act.sa_sigaction = sig_quit;
+    sigaction(SIGQUIT, &act, 0);
+
     act.sa_sigaction = sig_urg;
     sigaction(SIGURG, &act, 0);
 }
@@ -573,6 +577,16 @@ static void
 sig_alrm(int signo, siginfo_t *siginfo, void *ucontext)
 {
     set_finished();
+}
+
+
+/*
+ * Our child sends us a quit when it wishes us to exit.
+ */
+static void
+sig_quit(int signo, siginfo_t *siginfo, void *ucontext)
+{
+    exit(0);
 }
 
 
@@ -1511,6 +1525,7 @@ run_server_quit(void)
 
     sync_test();
     read(RemoteFD, buf, sizeof(buf));
+    kill(getppid(), SIGQUIT);
     exit(0);
 }
 
