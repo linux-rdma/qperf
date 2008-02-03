@@ -113,6 +113,8 @@ typedef enum {
     R_RATE,
     L_RD_ATOMIC,
     R_RD_ATOMIC,
+    L_SL,
+    R_SL,
     L_SOCK_BUF_SIZE,
     R_SOCK_BUF_SIZE,
     L_TIME,
@@ -137,25 +139,26 @@ typedef enum {
 /*
  * Request to the server.  Note that most of these must be of type uint32_t
  * because of the way options are set.  The minor version must be changed if
- * there is change to this data structure.
+ * there is a change to this data structure.
  */
 typedef struct REQ {
     uint16_t    ver_maj;                /* Major version */
     uint16_t    ver_min;                /* Minor version */
     uint16_t    ver_inc;                /* Incremental version */
     uint16_t    req_index;              /* Request index (into Tests) */
-    uint32_t    flip;                   /* Flip sender/receiver */
     uint32_t    access_recv;            /* Access data after receiving */
     uint32_t    affinity;               /* Processor affinity */
-    uint32_t    poll_mode;              /* Poll mode */
-    uint32_t    port;                   /* Port number requested */
-    uint32_t    rd_atomic;              /* Number of pending RDMA or atomics */
-    uint32_t    timeout;                /* Timeout for messages */
+    uint32_t    flip;                   /* Flip sender/receiver */
     uint32_t    msg_size;               /* Message Size */
     uint32_t    mtu_size;               /* MTU Size */
     uint32_t    no_msgs;                /* Number of messages */
+    uint32_t    poll_mode;              /* Poll mode */
+    uint32_t    port;                   /* Port number requested */
+    uint32_t    rd_atomic;              /* Number of pending RDMA or atomics */
+    uint32_t    sl;                     /* Service level */
     uint32_t    sock_buf_size;          /* Socket buffer size */
     uint32_t    time;                   /* Duration in seconds */
+    uint32_t    timeout;                /* Timeout for messages */
     char        id[STRSIZE];            /* Identifier */
     char        rate[STRSIZE];          /* Rate */
 } REQ;

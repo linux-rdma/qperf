@@ -48,7 +48,7 @@
  */
 #define QKEY            0x11111111      /* Q_Key */
 #define NCQE            1024            /* Number of CQ entries */
-#define GRH_SIZE        40              /* IB GRH size */
+#define GRH_SIZE        40              /* InfiniBand GRH size */
 #define MTU_SIZE        2048            /* Default MTU Size */
 #define RETRY_CNT       7               /* RC/UC retry count */
 #define RNR_RETRY       7               /* RC/UC RNR retry count */
@@ -1271,6 +1271,8 @@ ib_params_msgs(long msgSize, int use_poll_mode)
     par_use(R_MTU_SIZE);
     par_use(L_RATE);
     par_use(R_RATE);
+    par_use(L_SL);
+    par_use(R_SL);
     if (use_poll_mode) {
         par_use(L_POLL_MODE);
         par_use(R_POLL_MODE);
@@ -1295,6 +1297,8 @@ ib_params_atomics(void)
     par_use(R_RATE);
     par_use(L_RD_ATOMIC);
     par_use(R_RD_ATOMIC);
+    par_use(L_SL);
+    par_use(R_SL);
     opt_check();
 
     setv_u32(L_MSG_SIZE, 0);
@@ -1596,7 +1600,8 @@ ib_prepare(IBDEV *ibdev)
         .ah_attr            = {
             .dlid           = ibdev->rcon.lid,
             .port_num       = ibdev->port,
-            .static_rate    = ibdev->rate
+            .static_rate    = ibdev->rate,
+            .sl             = Req.sl
         }
     };
     struct ibv_qp_attr rts_attr ={
@@ -1610,7 +1615,8 @@ ib_prepare(IBDEV *ibdev)
     struct ibv_ah_attr ah_attr ={
         .dlid           = ibdev->rcon.lid,
         .port_num       = ibdev->port,
-        .static_rate    = ibdev->rate
+        .static_rate    = ibdev->rate,
+        .sl             = Req.sl
     };
 
     if (ibdev->trans == IBV_QPT_UD) {

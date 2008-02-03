@@ -45,7 +45,7 @@ Examples
         * To measure RDMA UC bi-directional bandwidth:
             qperf myserver rc_bi_bw
 Opts
-    --access_recv OnOff (-Ar)           Access received data
+    --access_recv OnOff (-ar)           Access received data
     --affinity PN (-a)                  Set processor affinity
       --loc_affinity PN (-la)           Set local processor affinity
       --rem_affinity PN (-ra)           Set remote processor affinity
@@ -70,13 +70,16 @@ Opts
     --rd_atomic Count (-R)              Set RDMA read/atomic count
         --loc_rd_atomic Count (-lR)     Set local RDMA read/atomic count
         --rem_rd_atomic Count (-rR)     Set remote RDMA read/atomic count
-    --sock_buf_size Size (-S)           Set socket buffer size
-      --loc_sock_buf_size Size (-lS)    Set local socket buffer size
-      --rem_sock_buf_size Size (-rS)    Set remote socket buffer size
-    --time (-t)                         Set test duration
-    --timeout Time (-T)                 Set timeout
-      --loc_timeout Time (-lT)          Set local timeout
-      --rem_timeout Time (-rT)          Set remote timeout
+    --service_level SL (-sl)            Set service level
+      --service_level SL (-lsl)         Set local service level
+      --service_level SL (-rsl)         Set remote service level
+    --sock_buf_size Size (-sb)          Set socket buffer size
+      --loc_sock_buf_size Size (-lsb)   Set local socket buffer size
+      --rem_sock_buf_size Size (-rsb)   Set remote socket buffer size
+    --time Time (-t)                    Set test duration
+    --timeout Time (-to)                Set timeout
+      --loc_timeout Time (-lto)         Set local timeout
+      --rem_timeout Time (-rto)         Set remote timeout
     --unify_nodes (-un)                 Unify nodes
     --unify_units (-uu)                 Unify units
     --use_bits_per_sec (-ub)            Use bits/sec rather than bytes/sec
@@ -86,14 +89,14 @@ Opts
       --verbose_time (-vt)              Show timing information
       --verbose_used (-vu)              Show information on parameters
       --verbose_more (-vv)              More verbose; turn on all of -v[CSTU]
-      --verbose_more_conf (-vC)         Show more configuration information
-      --verbose_more_stat (-vS)         Show more statistical information
-      --verbose_more_time (-vT)         Show more timing information
-      --verbose_more_used (-vU)         Show more information on parameters
+      --verbose_more_conf (-vvc)        Show more configuration information
+      --verbose_more_stat (-vvs)        Show more statistical information
+      --verbose_more_time (-vvt)        Show more timing information
+      --verbose_more_used (-vvu)        Show more information on parameters
     --version (-V)                      Print out version
     --wait Time (-W)                    Set time to wait for server
 Options
-    --access_recv OnOff (-Ar)
+    --access_recv OnOff (-ar)
           If OnOff is non-zero, data is accessed once received.  Otherwise,
           data is ignored.  By default, OnOff is 0.  This helps to mimic some
           applications.
@@ -166,18 +169,26 @@ Options
           Set local read/atomic count.
       --rem_rd_atomic Count (-rR)
           Set remote read/atomic count.
-    --sock_buf_size Size (-S)
+    --service_level SL (-sl)
+          Set RDMA service level to SL.  This is only used by the RDMA tests.
+          The service level must be between 0 and 15.  The default service
+          level is 0.
+      --loc_service_level SL (-lsl)
+          Set local service level.
+      --rem_service_level SL (-rsl)
+          Set remote service level.
+    --sock_buf_size Size (-sb)
           Set the socket buffer size.  This is only relevant to the socket
           tests.
-      --loc_sock_buf_size Size (-lS)
+      --loc_sock_buf_size Size (-lsb)
           Set local socket buffer size.
-      --rem_sock_buf_size Size (-rS)
+      --rem_sock_buf_size Size (-rsb)
           Set remote socket buffer size.
     --time Time (-t)
           Set test duration to Time.  Specified in seconds however a trailing
           m, h or d indicates that the time is specified in minutes, hours or
           days respectively.
-    --timeout Time (-T)
+    --timeout Time (-to)
           Set timeout to Time.  This is the timeout used for various things
           such as exchanging messages.  The default is 5 seconds.
       --loc_timeout Time (-lT)
@@ -198,19 +209,20 @@ Options
           Provide information on configuration.
       --verbose_stat (-vs)
           Provide information on statistics.
-      --verbose_stat (-vt)
+      --verbose_time (-vt)
           Provide information on timing.
-      --verbose_stat (-vu)
+      --verbose_used (-vu)
           Provide information on parameters used.
       --verbose_more (-vv)
-          Provide even more detailed output.  Turns on -vC, -vS, -vT and -vU.
-      --verbose_conf (-vC)
+          Provide even more detailed output.  Turns on -vvc, -vvs, -vvt and
+          -vvu.
+      --verbose_more_conf (-vvc)
           Provide more information on configuration.
-      --verbose_stat (-vS)
+      --verbose_more_stat (-vvs)
           Provide more information on statistics.
-      --verbose_stat (-vT)
+      --verbose_more_time (-vvt)
           Provide more information on timing.
-      --verbose_stat (-vU)
+      --verbose_more_used (-vvu)
           Provide more information on parameters used.
     --version (-V)
           The current version of qperf is printed.
@@ -290,10 +302,10 @@ rds_bw
     Purpose
         RDS streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -309,7 +321,7 @@ rds_lat
     Common Options
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -322,10 +334,10 @@ sctp_bw
     Purpose
         SCTP streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -341,7 +353,7 @@ sctp_lat
     Common Options
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -354,10 +366,10 @@ sdp_bw
     Purpose
         SDP streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -373,7 +385,7 @@ sdp_lat
     Common Options
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -386,10 +398,10 @@ tcp_bw
     Purpose
         TCP streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -405,7 +417,7 @@ tcp_lat
     Common Options
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -418,10 +430,10 @@ udp_bw
     Purpose
         UDP streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -437,7 +449,7 @@ udp_lat
     Common Options
         --affinity PN (-a)          Set processor affinity
         --msg_size Size (-m)        Set message size
-        --sock_buf_size Size (-S)   Set socket buffer size
+        --sock_buf_size Size (-sb)  Set socket buffer size
         --time (-t)                 Set test duration
     Other Options
         --listen_port, --port, --timeout
@@ -450,7 +462,7 @@ ud_bw +RDMA
     Purpose
         UD streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -467,7 +479,7 @@ ud_bi_bw +RDMA
     Purpose
         UD streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -499,7 +511,7 @@ rc_bw +RDMA
     Purpose
         RC streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -516,7 +528,7 @@ rc_bi_bw +RDMA
     Purpose
         RC streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -548,7 +560,7 @@ uc_bw +RDMA
     Purpose
         UC streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -565,7 +577,7 @@ uc_bi_bw +RDMA
     Purpose
         UC streaming two way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
@@ -597,7 +609,7 @@ rc_rdma_read_bw +RDMA
     Purpose
         RC RDMA read streaming one way bandwidth
     Common Options
-        --access_recv OnOff (-Ar)   Access received data
+        --access_recv OnOff (-ar)   Access received data
         --id Device:Port (-i)       Set IB device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off

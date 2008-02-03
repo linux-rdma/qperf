@@ -61,7 +61,7 @@
  * VER_MAJ is reserved for major changes.
  */
 #define VER_MAJ  0                      /* Major version */
-#define VER_MIN  2                      /* Minor version */
+#define VER_MIN  3                      /* Minor version */
 #define VER_INC  0                      /* Incremental version */
 #define LISTENQ  5                      /* Size of listen queue */
 #define ERRTIME  3                      /* Error timeout in seconds */
@@ -69,18 +69,11 @@
 
 
 /*
- * For convenience.
- */
-#define with(c) |(c<<8)
-
-
-/*
  * Option list.
  */
 typedef struct OPTION {
     char       *name;                   /* Name of option */
-    short       server_valid;           /* Option valid on server */
-    void      (*func)();                /* Function to call */
+    char       *type;                   /* Type */
     int         arg1;                   /* First argument */
     int         arg2;                   /* Second argument */
 } OPTION;
@@ -160,6 +153,7 @@ static void     dec_req(REQ *host);
 static void     dec_stat(STAT *host);
 static void     dec_ustat(USTAT *host);
 static void     do_args(char *args[]);
+static void     do_option(OPTION *option, char ***argvp);
 static void     enc_req(REQ *host);
 static void     enc_stat(STAT *host);
 static void     enc_ustat(USTAT *host);
@@ -172,13 +166,6 @@ static void     initialize(void);
 static void     init_lstat(void);
 static void     init_vars(void);
 static int      nice_1024(char *pref, char *name, long long value);
-static void     opt_help(OPTION *option, char ***argvp);
-static void     opt_misc(OPTION *option, char ***argvp);
-static void     opt_strn(OPTION *option, char ***argvp);
-static void     opt_long(OPTION *option, char ***argvp);
-static void     opt_size(OPTION *option, char ***argvp);
-static void     opt_time(OPTION *option, char ***argvp);
-static void     opt_vers(OPTION *option, char ***argvp);
 static PAR_INFO *par_info(PAR_INDEX index);
 static PAR_INFO *par_set(char *name, PAR_INDEX index);
 static int      par_isset(PAR_INDEX index);
@@ -277,6 +264,7 @@ PAR_NAME ParName[] ={
     { "poll_mode",      L_POLL_MODE,      R_POLL_MODE     },
     { "port",           L_PORT,           R_PORT          },
     { "rd_atomic",      L_RD_ATOMIC,      R_RD_ATOMIC     },
+    { "service_level",  L_SL,             R_SL            },
     { "sock_buf_size",  L_SOCK_BUF_SIZE,  R_SOCK_BUF_SIZE },
     { "time",           L_TIME,           R_TIME          },
     { "timeout",        L_TIMEOUT,        R_TIMEOUT       },
@@ -311,6 +299,8 @@ PAR_INFO ParInfo[P_N] ={
     { R_RATE,           'p',  &RReq.rate            },
     { L_RD_ATOMIC,      'l',  &Req.rd_atomic        },
     { R_RD_ATOMIC,      'l',  &RReq.rd_atomic       },
+    { L_SL,             'l',  &Req.sl               },
+    { R_SL,             'l',  &RReq.sl              },
     { L_SOCK_BUF_SIZE,  's',  &Req.sock_buf_size    },
     { R_SOCK_BUF_SIZE,  's',  &RReq.sock_buf_size   },
     { L_TIME,           't',  &Req.time             },
@@ -321,108 +311,127 @@ PAR_INFO ParInfo[P_N] ={
 
 
 /*
- * Options.
+ * Options.  The type field (2nd column) is used by do_option.  If it begins
+ * with a S, it is a valid server option.  If it begins with a X, it is
+ * obsolete and will eventually go away.
  */
 OPTION Options[] ={
-    { "--access_recv",        0, &opt_long, L_ACCESS_RECV,   R_ACCESS_RECV   },
-    {   "-Ar",                0, &opt_long, L_ACCESS_RECV,   R_ACCESS_RECV   },
-    { "--affinity",           0, &opt_long, L_AFFINITY,      R_AFFINITY      },
-    {   "-a",                 0, &opt_long, L_AFFINITY,      R_AFFINITY      },
-    {  "--loc_affinity",      0, &opt_long, L_AFFINITY,                      },
-    {   "-la",                0, &opt_long, L_AFFINITY,                      },
-    {  "--rem_affinity",      0, &opt_long, R_AFFINITY                       },
-    {   "-ra",                0, &opt_long, R_AFFINITY                       },
-    { "--debug",              1, &opt_misc, 'D',                             },
-    {   "-D",                 1, &opt_misc, 'D',                             },
-    { "--flip",               0, &opt_long, L_FLIP,          R_FLIP          },
-    {   "-f",                 0, &opt_long, L_FLIP,          R_FLIP          },
-    { "--help",               0, &opt_help                                   },
-    {   "-h",                 0, &opt_help                                   },
-    { "--host",               0, &opt_misc, 'H',                             },
-    {   "-H",                 0, &opt_misc, 'H',                             },
-    { "--id",                 0, &opt_strn, L_ID,            R_ID            },
-    {   "-i",                 0, &opt_strn, L_ID,            R_ID            },
-    {  "--loc_id",            0, &opt_strn, L_ID,                            },
-    {   "-li",                0, &opt_strn, L_ID,                            },
-    {  "--rem_id",            0, &opt_strn, R_ID                             },
-    {   "-ri",                0, &opt_strn, R_ID                             },
-    { "--listen_port",        1, &opt_misc, 'l','p'                          },
-    {   "-lp",                1, &opt_misc, 'l','p'                          },
-    { "--msg_size",           0, &opt_size, L_MSG_SIZE,      R_MSG_SIZE      },
-    {   "-m",                 0, &opt_size, L_MSG_SIZE,      R_MSG_SIZE      },
-    { "--mtu_size",           0, &opt_size, L_MTU_SIZE,      R_MTU_SIZE      },
-    {   "-M",                 0, &opt_size, L_MTU_SIZE,      R_MTU_SIZE      },
-    { "--no_msgs",            0, &opt_long, L_NO_MSGS,       R_NO_MSGS       },
-    {   "-n",                 0, &opt_long, L_NO_MSGS,       R_NO_MSGS       },
-    { "--poll",               0, &opt_long, L_POLL_MODE,     R_POLL_MODE     },
-    {   "-P",                 0, &opt_long, L_POLL_MODE,     R_POLL_MODE     },
-    {  "--loc_poll",          0, &opt_long, L_POLL_MODE,                     },
-    {   "-lP",                0, &opt_long, L_POLL_MODE,                     },
-    {  "--rem_poll",          0, &opt_long, R_POLL_MODE                      },
-    {   "-rP",                0, &opt_long, R_POLL_MODE                      },
-    { "--port",               0, &opt_long, L_PORT,          R_PORT          },
-    {   "-p",                 0, &opt_long, L_PORT,          R_PORT          },
-    { "--precision",          0, &opt_misc, 'e',                             },
-    {   "-e",                 0, &opt_misc, 'e',                             },
-    { "--rate",               0, &opt_strn, L_RATE,          R_RATE          },
-    {   "-r",                 0, &opt_strn, L_RATE,          R_RATE          },
-    {  "--loc_rate",          0, &opt_strn, L_RATE                           },
-    {   "-lr",                0, &opt_strn, L_RATE                           },
-    {  "--rem_rate",          0, &opt_strn, R_RATE                           },
-    {   "-rr",                0, &opt_strn, R_RATE                           },
-    { "-rd_atomic",           0, &opt_long, L_RD_ATOMIC,     R_RD_ATOMIC     },
-    {   "-R",                 0, &opt_long, L_RD_ATOMIC,     R_RD_ATOMIC     },
-    {  "--loc_rd_atomic",     0, &opt_long, L_RD_ATOMIC,                     },
-    {   "-lR",                0, &opt_long, L_RD_ATOMIC,                     },
-    {  "--rem_rd_atomic",     0, &opt_long, R_RD_ATOMIC                      },
-    {   "-rR",                0, &opt_long, R_RD_ATOMIC                      },
-    { "--sock_buf_size",      0, &opt_size, L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
-    {   "-S",                 0, &opt_size, L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
-    {  "--loc_sock_buf_size", 0, &opt_size, L_SOCK_BUF_SIZE                  },
-    {   "-lS",                0, &opt_size, L_SOCK_BUF_SIZE                  },
-    {  "--rem_sock_buf_size", 0, &opt_size, R_SOCK_BUF_SIZE                  },
-    {   "-rS",                0, &opt_size, R_SOCK_BUF_SIZE                  },
-    { "--time",               0, &opt_time, L_TIME,          R_TIME          },
-    {   "-t",                 0, &opt_time, L_TIME,          R_TIME          },
-    { "--timeout",            0, &opt_time, L_TIMEOUT,       R_TIMEOUT       },
-    {   "-T",                 0, &opt_time, L_TIMEOUT,       R_TIMEOUT       },
-    {  "--loc_timeout",       0, &opt_time, L_TIMEOUT                        },
-    {   "-lT",                0, &opt_time, L_TIMEOUT                        },
-    {  "--rem_timeout",       0, &opt_time, R_TIMEOUT                        },
-    {   "-rT",                0, &opt_time, R_TIMEOUT                        },
-    { "--server_timeout",     0, &opt_misc, 's', 't'                         },
-    {   "-st",                0, &opt_misc, 's', 't'                         },
-    { "--unify_nodes",        0, &opt_misc, 'u', 'n'                         },
-    {   "-un",                0, &opt_misc, 'u', 'n'                         },
-    { "--unify_units",        0, &opt_misc, 'u', 'u'                         },
-    {   "-uu",                0, &opt_misc, 'u', 'u'                         },
-    {   "-u",                 0, &opt_misc, 'u', 'u'         /* obsolete */  },
-    { "--use_bits_per_sec",   0, &opt_misc, 'u', 'b'                         },
-    {   "-ub",                0, &opt_misc, 'u', 'b'                         },
-    { "--verbose",            0, &opt_misc, 'v'                              },
-    {   "-v",                 0, &opt_misc, 'v'                              },
-    { "--verbose_conf",       0, &opt_misc, 'v', 'c'                         },
-    {   "-vc",                0, &opt_misc, 'v', 'c'                         },
-    { "--verbose_stat",       0, &opt_misc, 'v', 's'                         },
-    {   "-vs",                0, &opt_misc, 'v', 's'                         },
-    { "--verbose_time",       0, &opt_misc, 'v', 't'                         },
-    {   "-vt",                0, &opt_misc, 'v', 't'                         },
-    { "--verbose_used",       0, &opt_misc, 'v', 'u'                         },
-    {   "-vu",                0, &opt_misc, 'v', 'u'                         },
-    { "--verbose_more",       0, &opt_misc, 'v', 'v'                         },
-    {   "-vv",                0, &opt_misc, 'v', 'v'                         },
-    { "--verbose_more_conf",  0, &opt_misc, 'v', 'c'                         },
-    {   "-vC",                0, &opt_misc, 'v', 'C'                         },
-    { "--verbose_more_stat",  0, &opt_misc, 'v', 's'                         },
-    {   "-vS",                0, &opt_misc, 'v', 'S'                         },
-    { "--verbose_more_time",  0, &opt_misc, 'v', 't'                         },
-    {   "-vT",                0, &opt_misc, 'v', 'T'                         },
-    { "--verbose_more_used",  0, &opt_misc, 'v', 'u'                         },
-    {   "-vU",                0, &opt_misc, 'v', 'U'                         },
-    { "--version",            0, &opt_vers,                                  },
-    {   "-V",                 0, &opt_vers,                                  },
-    { "--wait",               0, &opt_misc, 'W',                             },
-    {   "-W",                 0, &opt_misc, 'W',                             },
+    { "--access_recv",        "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    {   "-ar",                "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    { "--affinity",           "int",  L_AFFINITY,      R_AFFINITY      },
+    {   "-a",                 "int",  L_AFFINITY,      R_AFFINITY      },
+    {  "--loc_affinity",      "int",  L_AFFINITY,                      },
+    {   "-la",                "int",  L_AFFINITY,                      },
+    {  "--rem_affinity",      "int",  R_AFFINITY                       },
+    {   "-ra",                "int",  R_AFFINITY                       },
+    { "--debug",              "Sdebug",                                },
+    {   "-D",                 "Sdebug",                                },
+    { "--flip",               "int",  L_FLIP,          R_FLIP          },
+    {   "-f",                 "int",  L_FLIP,          R_FLIP          },
+    { "--help",               "help"                                   },
+    {   "-h",                 "help"                                   },
+    { "--host",               "host",                                  },
+    {   "-H",                 "host",                                  },
+    { "--id",                 "str",  L_ID,            R_ID            },
+    {   "-i",                 "str",  L_ID,            R_ID            },
+    {  "--loc_id",            "str",  L_ID,                            },
+    {   "-li",                "str",  L_ID,                            },
+    {  "--rem_id",            "str",  R_ID                             },
+    {   "-ri",                "str",  R_ID                             },
+    { "--listen_port",        "Slp",                                   },
+    {   "-lp",                "Slp",                                   },
+    { "--msg_size",           "size", L_MSG_SIZE,      R_MSG_SIZE      },
+    {   "-m",                 "size", L_MSG_SIZE,      R_MSG_SIZE      },
+    { "--mtu_size",           "size", L_MTU_SIZE,      R_MTU_SIZE      },
+    {   "-M",                 "size", L_MTU_SIZE,      R_MTU_SIZE      },
+    { "--no_msgs",            "int",  L_NO_MSGS,       R_NO_MSGS       },
+    {   "-n",                 "int",  L_NO_MSGS,       R_NO_MSGS       },
+    { "--poll",               "int",  L_POLL_MODE,     R_POLL_MODE     },
+    {   "-P",                 "int",  L_POLL_MODE,     R_POLL_MODE     },
+    {  "--loc_poll",          "int",  L_POLL_MODE,                     },
+    {   "-lP",                "int",  L_POLL_MODE,                     },
+    {  "--rem_poll",          "int",  R_POLL_MODE                      },
+    {   "-rP",                "int",  R_POLL_MODE                      },
+    { "--port",               "int",  L_PORT,          R_PORT          },
+    {   "-p",                 "int",  L_PORT,          R_PORT          },
+    { "--precision",          "precision",                             },
+    {   "-e",                 "precision",                             },
+    { "--rate",               "str",  L_RATE,          R_RATE          },
+    {   "-r",                 "str",  L_RATE,          R_RATE          },
+    {  "--loc_rate",          "str",  L_RATE                           },
+    {   "-lr",                "str",  L_RATE                           },
+    {  "--rem_rate",          "str",  R_RATE                           },
+    {   "-rr",                "str",  R_RATE                           },
+    { "-rd_atomic",           "int",  L_RD_ATOMIC,     R_RD_ATOMIC     },
+    {   "-R",                 "int",  L_RD_ATOMIC,     R_RD_ATOMIC     },
+    {  "--loc_rd_atomic",     "int",  L_RD_ATOMIC,                     },
+    {   "-lR",                "int",  L_RD_ATOMIC,                     },
+    {  "--rem_rd_atomic",     "int",  R_RD_ATOMIC                      },
+    {   "-rR",                "int",  R_RD_ATOMIC                      },
+    { "--service_level",      "sl",   L_SL,            R_SL            },
+    {   "-sl",                "sl",   L_SL,            R_SL            },
+    {  "--loc_service_level", "sl",   L_SL                             },
+    {   "-lsl",               "sl",   L_SL                             },
+    {  "--rem_service_level", "sl",   R_SL                             },
+    {   "-rsl",               "sl",   R_SL                             },
+    { "--sock_buf_size",      "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
+    {   "-sb",                "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
+    {  "--loc_sock_buf_size", "size", L_SOCK_BUF_SIZE                  },
+    {   "-lsb",               "size", L_SOCK_BUF_SIZE                  },
+    {  "--rem_sock_buf_size", "size", R_SOCK_BUF_SIZE                  },
+    {   "-rsb",               "size", R_SOCK_BUF_SIZE                  },
+    { "--time",               "time", L_TIME,          R_TIME          },
+    {   "-t",                 "time", L_TIME,          R_TIME          },
+    { "--timeout",            "time", L_TIMEOUT,       R_TIMEOUT       },
+    {   "-to",                "time", L_TIMEOUT,       R_TIMEOUT       },
+    {  "--loc_timeout",       "time", L_TIMEOUT                        },
+    {   "-lto",               "time", L_TIMEOUT                        },
+    {  "--rem_timeout",       "time", R_TIMEOUT                        },
+    {   "-rto",               "time", R_TIMEOUT                        },
+    { "--unify_nodes",        "un",                                    },
+    {   "-un",                "un",                                    },
+    { "--unify_units",        "uu",                                    },
+    {   "-uu",                "uu",                                    },
+    { "--use_bits_per_sec",   "ub",                                    },
+    {   "-ub",                "ub",                                    },
+    { "--verbose",            "v",                                     },
+    {   "-v",                 "v",                                     },
+    { "--verbose_conf",       "vc",                                    },
+    {   "-vc",                "vc",                                    },
+    { "--verbose_stat",       "vs",                                    },
+    {   "-vs",                "vs",                                    },
+    { "--verbose_time",       "vt",                                    },
+    {   "-vt",                "vt",                                    },
+    { "--verbose_used",       "vu",                                    },
+    {   "-vu",                "vu",                                    },
+    { "--verbose_more",       "vv",                                    },
+    {   "-vv",                "vv",                                    },
+    { "--verbose_more_conf",  "vvc",                                   },
+    {   "-vvc",               "vvc",                                   },
+    { "--verbose_more_stat",  "vvs",                                   },
+    {   "-vvs",               "vvs",                                   },
+    { "--verbose_more_time",  "vvt",                                   },
+    {   "-vvt",               "vvt",                                   },
+    { "--verbose_more_used",  "vvu",                                   },
+    {   "-vvu",               "vvu",                                   },
+    { "--version",            "version",                               },
+    {   "-V",                 "version",                               },
+    { "--wait",               "wait",                                  },
+    {   "-W",                 "wait",                                  },
+
+    /* Obsolete options */
+    {   "-Ar",                "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    {   "-S",                 "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
+    {   "-T",                 "time", L_TIMEOUT,       R_TIMEOUT       },
+    {   "-lT",                "time", L_TIMEOUT                        },
+    {   "-rT",                "time", R_TIMEOUT                        },
+    {   "-lS",                "size", L_SOCK_BUF_SIZE                  },
+    {   "-rS",                "size", R_SOCK_BUF_SIZE                  },
+    {   "-u",                 "Xuu",                                   },
+    {   "-vC",                "Xvvc",                                  },
+    {   "-vS",                "Xvvs",                                  },
+    {   "-vT",                "Xvvt",                                  },
+    {   "-vU",                "Xvvu",                                  },
 };
 
 
@@ -615,9 +624,9 @@ do_args(char *args[])
             OPTION *option = find_option(arg);
             if (!option)
                 error(0, "%s: bad option; try: qperf --help options", arg);
-            if (!option->server_valid)
+            if (option->type[0] != 'S')
                 isClient = 1;
-            option->func(option, &args);
+            do_option(option, &args);
         } else {
             isClient = 1;
             if (!ServerName)
@@ -676,159 +685,122 @@ find_test(char *name)
 
 
 /*
- * Print out a help message.
+ * Handle options.
  */
 static void
-opt_help(OPTION *option, char ***argvp)
+do_option(OPTION *option, char ***argvp)
 {
-    char **usage;
-    char *category = (*argvp)[1];
+    char *t = option->type;
 
-    if (!category)
-        category = "main";
-    for (usage = Usage; *usage; usage += 2)
-        if (streq(*usage, category))
-            break;
-    if (!*usage)
-        error(0, "cannot find help category %s; try: qperf --help");
-    printf("%s", usage[1]);
-    exit(0);
-}
-
-
-/*
- * Handle options requiring a long argument.
- */
-static void
-opt_long(OPTION *option, char ***argvp)
-{
-    long l = arg_long(argvp);
-    setp_u32(option->name, option->arg1, l);
-    setp_u32(option->name, option->arg2, l);
-}
-
-
-/*
- * Handle miscellaneous options.
- */
-static void
-opt_misc(OPTION *option, char ***argvp)
-{
-    switch (option->arg1 with (option->arg2)) {
-    case 'e':
-        Precision = arg_long(argvp);
-        return;
-    case 'v':
-        VerboseConf = 1;
-        VerboseStat = 1;
-        VerboseTime = 1;
-        VerboseUsed = 1;
-        break;
-    case 'D':
-        Debug = 1;
-        break;
-    case 'H':
-        ServerName = arg_strn(argvp);
-        return;
-    case 'W':
-        Wait = arg_time(argvp);
-        return;
-    case ('l') with ('p'):
-        ListenPort = arg_long(argvp);
-        return;
-    case ('s') with ('t'):
-        ServerTimeout = arg_time(argvp);
-        return;
-    case ('u') with ('b'):
-        UseBitsPerSec = 1;
-        break;
-    case ('u') with ('n'):
-        UnifyNodes = 1;
-        break;
-    case ('u') with ('u'):
-        UnifyUnits = 1;
-        break;
-    case ('v') with ('c'):
-        VerboseConf = 1;
-        break;
-    case ('v') with ('s'):
-        VerboseStat = 1;
-        break;
-    case ('v') with ('t'):
-        VerboseTime = 1;
-        break;
-    case ('v') with ('u'):
-        VerboseUsed = 1;
-        break;
-    case ('v') with ('v'):
-        VerboseConf = 2;
-        VerboseStat = 2;
-        VerboseTime = 2;
-        VerboseUsed = 2;
-        break;
-    case ('v') with ('C'):
-        VerboseConf = 2;
-        break;
-    case ('v') with ('S'):
-        VerboseStat = 2;
-        break;
-    case ('v') with ('T'):
-        VerboseTime = 2;
-        break;
-    case ('v') with ('U'):
-        VerboseUsed = 2;
-        break;
-    default:
-        error(BUG, "opt_misc: unknown argument: %s", option->name);
+    if (*t == 'S')
+        ++t;
+    if (*t == 'X') {
+        ++t;
+        error(RET, "warning: obsolete option: %s; use -%s instead",
+                                                            option->name, t);
     }
-    *argvp += 1;
-}
 
-
-/*
- * Handle options requiring a size argument.
- */
-static void
-opt_size(OPTION *option, char ***argvp)
-{
-    long l = arg_size(argvp);
-    setp_u32(option->name, option->arg1, l);
-    setp_u32(option->name, option->arg2, l);
-}
-
-
-/*
- * Handle options requiring a string argument.
- */
-static void
-opt_strn(OPTION *option, char ***argvp)
-{
-    char *s = arg_strn(argvp);
-    setp_str(option->name, option->arg1, s);
-    setp_str(option->name, option->arg2, s);
-}
-
-
-/*
- * Handle options requiring a time argument.
- */
-static void
-opt_time(OPTION *option, char ***argvp)
-{
-    long l = arg_time(argvp);
-    setp_u32(option->name, option->arg1, l);
-    setp_u32(option->name, option->arg2, l);
-}
-
-
-/*
- * Print out our current version.
- */
-static void
-opt_vers(OPTION *option, char ***argvp)
-{
-    printf("qperf %d.%d.%d\n", VER_MAJ, VER_MIN, VER_INC);
-    exit(0);
+    if (streq(t, "debug")) {
+        Debug = 1;
+        *argvp += 1;
+    } else if (streq(t, "help")) {
+        /* Help */
+        char **usage;
+        char *category = (*argvp)[1];
+        if (!category)
+            category = "main";
+        for (usage = Usage; *usage; usage += 2)
+            if (streq(*usage, category))
+                break;
+        if (!*usage)
+            error(0, "cannot find help category %s; try: qperf --help");
+        printf("%s", usage[1]);
+        exit(0);
+    } else if (streq(t, "host")) {
+        ServerName = arg_strn(argvp);
+    } else if (streq(t, "int")) {
+        long v = arg_long(argvp);
+        setp_u32(option->name, option->arg1, v);
+        setp_u32(option->name, option->arg2, v);
+    } else if (streq(t, "lp")) {
+        ListenPort = arg_long(argvp);
+    } else if (streq(t, "precision")) {
+        Precision = arg_long(argvp);
+    } else if (streq(t, "size")) {
+        long v = arg_size(argvp);
+        setp_u32(option->name, option->arg1, v);
+        setp_u32(option->name, option->arg2, v);
+    } else if (streq(t, "sl")) {
+        long v = arg_long(argvp);
+        if (v < 0 || v > 15)
+            error(0, "service level must be between 0 and 15: %d given", v);
+        setp_u32(option->name, option->arg1, v);
+        setp_u32(option->name, option->arg2, v);
+    } else if (streq(t, "str")) {
+        /* String */
+        char *s = arg_strn(argvp);
+        setp_str(option->name, option->arg1, s);
+        setp_str(option->name, option->arg2, s);
+    } else if (streq(t, "time")) {
+        long v = arg_time(argvp);
+        setp_u32(option->name, option->arg1, v);
+        setp_u32(option->name, option->arg2, v);
+    } else if (streq(t, "ub")) {
+        UseBitsPerSec = 1;
+        *argvp += 1;
+    } else if (streq(t, "un")) {
+        UnifyNodes = 1;
+        *argvp += 1;
+    } else if (streq(t, "uu")) {
+        UnifyUnits = 1;
+        *argvp += 1;
+    } else if (streq(t, "v")) {
+        if (VerboseConf < 1)
+            VerboseConf = 1;
+        if (VerboseStat < 1)
+            VerboseStat = 1;
+        if (VerboseTime < 1)
+            VerboseUsed = 1;
+        if (VerboseConf < 1)
+            VerboseUsed = 1;
+        *argvp += 1;
+    } else if (streq(t, "vc")) {
+        VerboseConf = 1;
+        *argvp += 1;
+    } else if (streq(t, "version")) {
+        printf("qperf %d.%d.%d\n", VER_MAJ, VER_MIN, VER_INC);
+        exit(0);
+    } else if (streq(t, "vs")) {
+        VerboseStat = 1;
+        *argvp += 1;
+    } else if (streq(t, "vt")) {
+        VerboseTime = 1;
+        *argvp += 1;
+    } else if (streq(t, "vu")) {
+        VerboseUsed = 1;
+        *argvp += 1;
+    } else if (streq(t, "vv")) {
+        VerboseConf = 2;
+        VerboseStat = 2;
+        VerboseTime = 2;
+        VerboseUsed = 2;
+        *argvp += 1;
+    } else if (streq(t, "vvc")) {
+        VerboseConf = 2;
+        *argvp += 1;
+    } else if (streq(t, "vvs")) {
+        VerboseStat = 2;
+        *argvp += 1;
+    } else if (streq(t, "vvt")) {
+        VerboseTime = 2;
+        *argvp += 1;
+    } else if (streq(t, "vvu")) {
+        VerboseUsed = 2;
+        *argvp += 1;
+    } else if (streq(t, "wait")) {
+        Wait = arg_time(argvp);
+    } else
+        error(BUG, "do_option: unknown type: %s", t);
 }
 
 
@@ -2373,19 +2345,21 @@ enc_req(REQ *host)
     enc_int(host->ver_min,       sizeof(host->ver_min));
     enc_int(host->ver_inc,       sizeof(host->ver_inc));
     enc_int(host->req_index,     sizeof(host->req_index));
-    enc_int(host->flip,          sizeof(host->flip));
     enc_int(host->access_recv,   sizeof(host->access_recv));
     enc_int(host->affinity,      sizeof(host->affinity));
-    enc_int(host->poll_mode,     sizeof(host->poll_mode));
-    enc_int(host->port,          sizeof(host->port));
-    enc_int(host->rd_atomic,     sizeof(host->rd_atomic));
-    enc_int(host->timeout,       sizeof(host->timeout));
+    enc_int(host->flip,          sizeof(host->flip));
     enc_int(host->msg_size,      sizeof(host->msg_size));
     enc_int(host->mtu_size,      sizeof(host->mtu_size));
     enc_int(host->no_msgs,       sizeof(host->no_msgs));
+    enc_int(host->poll_mode,     sizeof(host->poll_mode));
+    enc_int(host->port,          sizeof(host->port));
+    enc_int(host->rd_atomic,     sizeof(host->rd_atomic));
+    enc_int(host->sl,            sizeof(host->sl));
     enc_int(host->sock_buf_size, sizeof(host->sock_buf_size));
     enc_int(host->time,          sizeof(host->time));
+    enc_int(host->timeout,       sizeof(host->timeout));
     enc_str(host->id,            sizeof(host->id));
+    enc_str(host->rate,          sizeof(host->rate));
 }
 
 
@@ -2399,19 +2373,21 @@ dec_req(REQ *host)
     host->ver_min       = dec_int(sizeof(host->ver_min));
     host->ver_inc       = dec_int(sizeof(host->ver_inc));
     host->req_index     = dec_int(sizeof(host->req_index));
-    host->flip          = dec_int(sizeof(host->flip));
     host->access_recv   = dec_int(sizeof(host->access_recv));
     host->affinity      = dec_int(sizeof(host->affinity));
-    host->poll_mode     = dec_int(sizeof(host->poll_mode));
-    host->port          = dec_int(sizeof(host->port));
-    host->rd_atomic     = dec_int(sizeof(host->rd_atomic));
-    host->timeout       = dec_int(sizeof(host->timeout));
+    host->flip          = dec_int(sizeof(host->flip));
     host->msg_size      = dec_int(sizeof(host->msg_size));
     host->mtu_size      = dec_int(sizeof(host->mtu_size));
     host->no_msgs       = dec_int(sizeof(host->no_msgs));
+    host->poll_mode     = dec_int(sizeof(host->poll_mode));
+    host->port          = dec_int(sizeof(host->port));
+    host->rd_atomic     = dec_int(sizeof(host->rd_atomic));
+    host->sl            = dec_int(sizeof(host->sl));
     host->sock_buf_size = dec_int(sizeof(host->sock_buf_size));
     host->time          = dec_int(sizeof(host->time));
-    dec_str(host->id, sizeof(host->id));
+    host->timeout       = dec_int(sizeof(host->timeout));
+                          dec_str(host->id,   sizeof(host->id));
+                          dec_str(host->rate, sizeof(host->rate));
 }
 
 
