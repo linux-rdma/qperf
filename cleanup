@@ -16,7 +16,6 @@ rm -f `cat <<EOF
     depcomp
     install-sh
     missing
-    qperf.spec
     src/Makefile
     src/Makefile.in
     src/*.o
