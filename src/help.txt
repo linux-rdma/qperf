@@ -29,6 +29,71 @@ Author
 Bugs
     None of the RDMA tests are available if qperf is compiled without the RDMA
     libraries.  The -f option is not yet implemented in many of the tests.
+Categories -RDMA
+    To get help on a particular category, you may type:
+        qperf --help CATEGORY
+    where CATEGORY might be one of the following:
+        categories          This current list being displayed
+        examples            Some examples
+        options             A long list of options
+        opts                A short description of the options
+        tests               A list and description of the various tests
+    or one of the following tests:
+        conf
+        quit
+        rds_bw
+        rds_lat
+        sctp_bw
+        sctp_lat
+        sdp_bw
+        sdp_lat
+        tcp_bw
+        tcp_lat
+        udp_bw
+        udp_lat
+Categories +RDMA
+    To get help on a particular category, you may type:
+        qperf --help CATEGORY
+    where CATEGORY might be one of the following:
+        categories          This current list being displayed
+        examples            Some examples
+        options             A long list of options
+        opts                A short description of the options
+        tests               A list of tests
+    CATEGORY may also be one of the following tests
+        conf
+        quit
+        rc_bi_bw
+        rc_bw
+        rc_compare_swap_mr
+        rc_fetch_add_mr
+        rc_lat
+        rc_rdma_read_bw
+        rc_rdma_read_lat
+        rc_rdma_write_bw
+        rc_rdma_write_lat
+        rc_rdma_write_poll_lat
+        rds_bw
+        rds_lat
+        sctp_bw
+        sctp_lat
+        sdp_bw
+        sdp_lat
+        tcp_bw
+        tcp_lat
+        uc_bi_bw
+        uc_bw
+        uc_lat
+        uc_rdma_write_bw
+        uc_rdma_write_lat
+        uc_rdma_write_poll_lat
+        ud_bi_bw
+        ud_bw
+        ud_lat
+        udp_bw
+        udp_lat
+        ver_rc_compare_swap
+        ver_rc_fetch_add
 Examples
     In these examples, we first run qperf on a node called myserver in server
     mode by invoking it with no arguments.  In all the subsequent examples, we

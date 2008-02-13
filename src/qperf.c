@@ -712,8 +712,11 @@ do_option(OPTION *option, char ***argvp)
         for (usage = Usage; *usage; usage += 2)
             if (streq(*usage, category))
                 break;
-        if (!*usage)
-            error(0, "cannot find help category %s; try: qperf --help");
+        if (!*usage) {
+            error(0,
+                "cannot find help category %s; try: qperf --help categories",
+                                                                    category);
+        }
         printf("%s", usage[1]);
         exit(0);
     } else if (streq(t, "host")) {

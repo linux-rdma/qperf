@@ -1,5 +1,5 @@
 #!/bin/sh
-# autotools makes such a mess.
+# autotools makes such a mess.  Clean up after it.
 #
 for f in AUTHORS NEWS README ChangeLog; do
     [ -s "$f" ] || rm -f "$f"
@@ -24,6 +24,11 @@ rm -f `cat <<EOF
     src/qperf
 EOF`
 
+# We need to keep qperf.spec around for the OFED scripts but delete it if we do
+# not think it is correct.  This might be due to three reasons: (1) it does not
+# represent the RDMA version, (2) qperf.spec.in is newer and (3) configure.in
+# is newer.
+#
 if
     ! grep -q -s '^BuildRequires: *libibverbs-devel' qperf.spec ||
     [ qperf.spec.in -nt qperf.spec ] ||
