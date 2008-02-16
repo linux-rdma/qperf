@@ -1,4 +1,5 @@
 To build
+    ./cleanup
     ./autogen.sh
     ./configure
     make
@@ -6,3 +7,5 @@ To build
 Notes
     * If the library ibverbs is not found, a version of qperf is built that
       does not support the RDMA tests.
+    * Running "make clean" does not seem to clean up everything.  Run
+      "./cleanup" instead.
