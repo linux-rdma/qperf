@@ -4,6 +4,10 @@ To build
     ./configure
     make
 
+Changing version
+    * Change VER_MAJ, VER_MIN and VER_INC as appropriate in src/qperf.c
+    * Change version also in qperf.spec and configure.in
+
 Notes
     * If the library ibverbs is not found, a version of qperf is built that
       does not support the RDMA tests.

@@ -109,18 +109,20 @@ typedef enum {
     R_POLL_MODE,
     L_PORT,
     R_PORT,
-    L_RATE,
-    R_RATE,
     L_RD_ATOMIC,
     R_RD_ATOMIC,
     L_SL,
     R_SL,
     L_SOCK_BUF_SIZE,
     R_SOCK_BUF_SIZE,
+    L_STATIC_RATE,
+    R_STATIC_RATE,
     L_TIME,
     R_TIME,
     L_TIMEOUT,
     R_TIMEOUT,
+    L_USE_CM,
+    R_USE_CM,
     P_N
 } PAR_INDEX;
 
@@ -159,8 +161,9 @@ typedef struct REQ {
     uint32_t    sock_buf_size;          /* Socket buffer size */
     uint32_t    time;                   /* Duration in seconds */
     uint32_t    timeout;                /* Timeout for messages */
+    uint32_t    use_cm;                 /* Use Connection Manager */
     char        id[STRSIZE];            /* Identifier */
-    char        rate[STRSIZE];          /* Rate */
+    char        static_rate[STRSIZE];   /* Static rate */
 } REQ;
 
 

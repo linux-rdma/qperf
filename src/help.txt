@@ -117,30 +117,30 @@ Opts
     --flip OnOff (-f)                   Flip sender and receiver
     --help Topic (-h)                   Get more information on a topic
     --host Node (-H)                    Identify server node
-    --id Device:Port (-i)               Set IB device and port
-      --loc_id Device:Port (-li)        Set local IB device and port
-      --rem_id Device:Port (-ri)        Set remote IB device and port
+    --id Device:Port (-i)               Set RDMA device and port
+      --loc_id Device:Port (-li)        Set local RDMA device and port
+      --rem_id Device:Port (-ri)        Set remote RDMA device and port
     --listen_port Port (-lp)            Set server listen port
     --msg_size Size (-m)                Set message size
-    --mtu_size Size (-M)                Set MTU size (IB only)
+    --mtu_size Size (-mt)               Set MTU size (RDMA only)
     --no_msgs Count (-n)                Send Count messages
     --poll OnOff (-P)                   Set polling mode on/off
       --loc_poll OnOff (-lP)            Set local polling mode on/off
       --rem_poll OnOff (-lP)            Set remote polling mode on/off
     --port Port (-p)                    Set TCP port used for tests
     --precision Digits (-e)             Set precision reported
-    --rate (-r)                         Set IB static rate
-      --loc_rate (-lr)                  Set local IB static rate
-      --rem_rate (-rr)                  Set remote IB static rate
-    --rd_atomic Count (-R)              Set RDMA read/atomic count
-        --loc_rd_atomic Count (-lR)     Set local RDMA read/atomic count
-        --rem_rd_atomic Count (-rR)     Set remote RDMA read/atomic count
+    --rd_atomic Max (-nr)               Set RDMA read/atomic count
+        --loc_rd_atomic Max (-lnr)      Set local RDMA read/atomic count
+        --rem_rd_atomic Max (-rnr)      Set remote RDMA read/atomic count
     --service_level SL (-sl)            Set service level
       --service_level SL (-lsl)         Set local service level
       --service_level SL (-rsl)         Set remote service level
     --sock_buf_size Size (-sb)          Set socket buffer size
       --loc_sock_buf_size Size (-lsb)   Set local socket buffer size
       --rem_sock_buf_size Size (-rsb)   Set remote socket buffer size
+    --static_rate (-sr)                 Set IB static rate
+      --loc_rate (-lr)                  Set local IB static rate
+      --rem_rate (-rr)                  Set remote IB static rate
     --time Time (-t)                    Set test duration
     --timeout Time (-to)                Set timeout
       --loc_timeout Time (-lto)         Set local timeout
@@ -198,7 +198,7 @@ Options
           specified in kibibytes, mebibytes or gibibytes respectively while a
           trailing kb or k, mb or m, or gb or g indicates kilobytes, megabytes
           or gigabytes respectively.
-    --mtu_size Size (-M)
+    --mtu_size Size (-mt)
           Set the MTU size.  Only relevant to the RDMA UC/RC tests.  Units are
           specified in the same manner as the --msg_size option.
     --no_msgs N (-n)
@@ -218,21 +218,13 @@ Options
           that the test is run on.
     --precision Digits (-e)
           Set the number of significant digits that are used to report results.
-    --rate Rate (-r)
-          Force InfiniBand static rate.  Rate can be one of: 2.5, 5, 10, 20,
-          30, 40, 60, 80, 120, 1xSDR (2.5 Gbps), 1xDDR (5 Gbps), 1xQDR (10
-          Gbps), 4xSDR (2.5 Gbps), 4xDDR (5 Gbps), 4xQDR (10 Gbps), 8xSDR (2.5
-          Gbps), 8xDDR (5 Gbps), 8xQDR (10 Gbps).
-      --loc_rate (-lr)
-          Force local InfiniBand static rate
-      --rem_rate (-rr)
-          Force remote InfiniBand static rate
-    --rd_atomic Count (-R)
+    --rd_atomic Max (-nr)
           Set the number of in-flight operations that can be handled for a RDMA
-          read or atomic operation.  This is only relevant to the RDMA tests.
-      --loc_rd_atomic Count (-lR)
+          read or atomic operation to Max.  This is only relevant to the RDMA
+          Read and Atomic tests.
+      --loc_rd_atomic Max (-lnr)
           Set local read/atomic count.
-      --rem_rd_atomic Count (-rR)
+      --rem_rd_atomic Max (-rnr)
           Set remote read/atomic count.
     --service_level SL (-sl)
           Set RDMA service level to SL.  This is only used by the RDMA tests.
@@ -249,6 +241,15 @@ Options
           Set local socket buffer size.
       --rem_sock_buf_size Size (-rsb)
           Set remote socket buffer size.
+    --static_rate Rate (-sr)
+          Force InfiniBand static rate.  Rate can be one of: 2.5, 5, 10, 20,
+          30, 40, 60, 80, 120, 1xSDR (2.5 Gbps), 1xDDR (5 Gbps), 1xQDR (10
+          Gbps), 4xSDR (2.5 Gbps), 4xDDR (5 Gbps), 4xQDR (10 Gbps), 8xSDR (2.5
+          Gbps), 8xDDR (5 Gbps), 8xQDR (10 Gbps).
+      --loc_rate (-lr)
+          Force local InfiniBand static rate
+      --rem_rate (-rr)
+          Force remote InfiniBand static rate
     --time Time (-t)
           Set test duration to Time.  Specified in seconds however a trailing
           m, h or d indicates that the time is specified in minutes, hours or
@@ -256,10 +257,13 @@ Options
     --timeout Time (-to)
           Set timeout to Time.  This is the timeout used for various things
           such as exchanging messages.  The default is 5 seconds.
-      --loc_timeout Time (-lT)
-          Set local timeout to Time.
-      --rem_timeout Time (-rT)
-          Set local timeout to Time.
+      --loc_timeout Time (-lto)
+          Set local timeout to Time.  This may be used on the server to set the
+          initial timeout when exchanging data with the client.  As soon as we
+          receive the client's parameters, the client's remote timeout
+          overrides this parameter.
+      --rem_timeout Time (-rto)
+          Set remote timeout to Time.
     --unify_nodes (-un)
           Unify the nodes.  Describe them in terms of local and remote rather
           than send and receive.
@@ -528,12 +532,12 @@ ud_bw +RDMA
         UD streaming one way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -545,12 +549,12 @@ ud_bi_bw +RDMA
         UD streaming two way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -561,12 +565,12 @@ ud_lat +RDMA
     Purpose
         UD one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -577,12 +581,12 @@ rc_bw +RDMA
         RC streaming one way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -594,12 +598,12 @@ rc_bi_bw +RDMA
         RC streaming two way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -610,12 +614,12 @@ rc_lat +RDMA
     Purpose
         RC one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -626,12 +630,12 @@ uc_bw +RDMA
         UC streaming one way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -643,12 +647,12 @@ uc_bi_bw +RDMA
         UC streaming two way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -659,12 +663,12 @@ uc_lat +RDMA
     Purpose
         UC one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -675,12 +679,13 @@ rc_rdma_read_bw +RDMA
         RC RDMA read streaming one way bandwidth
     Common Options
         --access_recv OnOff (-ar)   Access received data
-        --id Device:Port (-i)       Set IB device and port
+        --id Device:Port (-i)       Set RDMA device and port
         --msg_size Size (-m)        Set message size
         --poll OnOff (-P)           Set polling mode on/off
         --time (-t)                 Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
+        --affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
+        --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -691,12 +696,12 @@ rc_rdma_read_lat +RDMA
     Purpose
         RC RDMA read one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -706,12 +711,12 @@ rc_rdma_write_bw +RDMA
     Purpose
         RC RDMA write streaming one way bandwidth
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -722,12 +727,12 @@ rc_rdma_write_lat +RDMA
     Purpose
         RC RDMA write one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -737,11 +742,11 @@ rc_rdma_write_poll_lat +RDMA
     Purpose
         RC RDMA write one way polling latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -755,12 +760,12 @@ uc_rdma_write_bw +RDMA
     Purpose
         UC RDMA write streaming one way bandwidth
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose
@@ -771,12 +776,12 @@ uc_rdma_write_lat +RDMA
     Purpose
         UC RDMA write one way latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -786,11 +791,11 @@ uc_rdma_write_poll_lat +RDMA
     Purpose
         UC RDMA write one way polling latency
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --msg_size Size (-m)    Set message size
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --timeout
+        --affinity, --listen_port, --mtu_size, --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -804,11 +809,12 @@ rc_compare_swap_mr +RDMA
     Purpose
         RC compare and swap messaging rate
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
+        --affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
+        --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -818,11 +824,12 @@ rc_fetch_add_mr +RDMA
     Purpose
         RC fetch and add messaging rate
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
+        --affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
+        --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -832,11 +839,12 @@ ver_rc_compare_swap +RDMA
     Purpose
         Verify RC compare and swap
     Common Options
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
+        --affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
+        --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
@@ -848,11 +856,12 @@ ver_rc_fetch_add +RDMA
         Verify RC fetch and add
     Common Options
         --affinity PN (-a)      Set processor affinity
-        --id Device:Port (-i)   Set IB device and port
+        --id Device:Port (-i)   Set RDMA device and port
         --poll OnOff (-P)       Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --affinity, --listen_port, --mtu_size, --rate, --rd_atomic, --timeout
+        --affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
+        --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose

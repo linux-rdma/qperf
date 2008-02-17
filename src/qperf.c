@@ -60,12 +60,20 @@
  * increment VER_MIN and set VER_INC to 0.  Otherwise, just increment VER_INC.
  * VER_MAJ is reserved for major changes.
  */
-#define VER_MAJ  0                      /* Major version */
-#define VER_MIN  3                      /* Minor version */
-#define VER_INC  0                      /* Incremental version */
-#define LISTENQ  5                      /* Size of listen queue */
-#define ERRTIME  3                      /* Error timeout in seconds */
-#define BUFSIZE  1024                   /* Size of buffers */
+#define VER_MAJ 0                       /* Major version */
+#define VER_MIN 4                       /* Minor version */
+#define VER_INC 0                       /* Incremental version */
+#define LISTENQ 5                       /* Size of listen queue */
+#define BUFSIZE 1024                    /* Size of buffers */
+
+
+/*
+ * Default parameter values.
+ */
+#define DEF_TIME        2               /* Test duration in seconds */
+#define DEF_TIMEOUT     5               /* Timeout in seconds */
+#define DEF_PRECISION   3               /* Precision of results */
+#define DEF_LISTEN_PORT 19765           /* Listen port */
 
 
 /*
@@ -101,6 +109,15 @@ typedef struct PAR_NAME {
     PAR_INDEX   loc_i;                  /* Local index */
     PAR_INDEX   rem_i;                  /* Remote index */
 } PAR_NAME;
+
+
+/*
+ * A simple mapping between two strings.
+ */
+typedef struct DICT {
+    char       *str1;                   /* String 1 */
+    char       *str2;                   /* String 2 */
+} DICT;
 
 
 /*
@@ -209,9 +226,8 @@ static void     view_time(int type, char *pref, char *name, double value);
 /*
  * Configurable variables.
  */
-static int      ListenPort      = 19765;
-static int      Precision       = 3;
-static int      ServerTimeout   = 5;
+static int      ListenPort      = DEF_LISTEN_PORT;
+static int      Precision       = DEF_PRECISION;
 static int      UseBitsPerSec   = 0;
 
 
@@ -268,6 +284,7 @@ PAR_NAME ParName[] ={
     { "sock_buf_size",  L_SOCK_BUF_SIZE,  R_SOCK_BUF_SIZE },
     { "time",           L_TIME,           R_TIME          },
     { "timeout",        L_TIMEOUT,        R_TIMEOUT       },
+    { "use_cm",         L_USE_CM,         R_USE_CM        },
 };
 
 
@@ -295,18 +312,49 @@ PAR_INFO ParInfo[P_N] ={
     { R_POLL_MODE,      'l',  &RReq.poll_mode       },
     { L_PORT,           'l',  &Req.port             },
     { R_PORT,           'l',  &RReq.port            },
-    { L_RATE,           'p',  &Req.rate             },
-    { R_RATE,           'p',  &RReq.rate            },
     { L_RD_ATOMIC,      'l',  &Req.rd_atomic        },
     { R_RD_ATOMIC,      'l',  &RReq.rd_atomic       },
     { L_SL,             'l',  &Req.sl               },
     { R_SL,             'l',  &RReq.sl              },
     { L_SOCK_BUF_SIZE,  's',  &Req.sock_buf_size    },
     { R_SOCK_BUF_SIZE,  's',  &RReq.sock_buf_size   },
+    { L_STATIC_RATE,    'p',  &Req.static_rate      },
+    { R_STATIC_RATE,    'p',  &RReq.static_rate     },
     { L_TIME,           't',  &Req.time             },
     { R_TIME,           't',  &RReq.time            },
     { L_TIMEOUT,        't',  &Req.timeout          },
     { R_TIMEOUT,        't',  &RReq.timeout         },
+    { L_USE_CM,         'l',  &Req.use_cm           },
+    { R_USE_CM,         'l',  &RReq.use_cm          },
+};
+
+
+/*
+ * Renamed options.  First is old, second is new.
+ */
+DICT Renamed[] = {
+    { "--rate",             "--static_rate"         },
+    {   "-r",               "-sr"                   },
+    {  "--loc_rate",        "--loc_static_rate"     },
+    {   "-lr",              "-lsr"                  },
+    {  "--rem_rate",        "--rem_static_rate"     },
+    {   "-rr",              "-rsr"                  },
+    {   "-R",               "-nr"                   },
+    {   "-lR",              "-lnr"                  },
+    {   "-rR",              "-rnr"                  },
+    {   "-Ar",              "-ar"                   },
+    {   "-M",               "-mt"                   },
+    {   "-S",               "-sb"                   },
+    {   "-lS",              "-lsb"                  },
+    {   "-rS",              "-rsb"                  },
+    {   "-T",               "-to"                   },
+    {   "-lT",              "-lto"                  },
+    {   "-rT",              "-rto"                  },
+    {   "-u",               "-uu",                  },
+    {   "-vC",              "-vvc",                 },
+    {   "-vS",              "-vvs",                 },
+    {   "-vT",              "-vvt",                 },
+    {   "-vU",              "-vvu",                 },
 };
 
 
@@ -316,122 +364,110 @@ PAR_INFO ParInfo[P_N] ={
  * obsolete and will eventually go away.
  */
 OPTION Options[] ={
-    { "--access_recv",        "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
-    {   "-ar",                "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
-    { "--affinity",           "int",  L_AFFINITY,      R_AFFINITY      },
-    {   "-a",                 "int",  L_AFFINITY,      R_AFFINITY      },
-    {  "--loc_affinity",      "int",  L_AFFINITY,                      },
-    {   "-la",                "int",  L_AFFINITY,                      },
-    {  "--rem_affinity",      "int",  R_AFFINITY                       },
-    {   "-ra",                "int",  R_AFFINITY                       },
-    { "--debug",              "Sdebug",                                },
-    {   "-D",                 "Sdebug",                                },
-    { "--flip",               "int",  L_FLIP,          R_FLIP          },
-    {   "-f",                 "int",  L_FLIP,          R_FLIP          },
-    { "--help",               "help"                                   },
-    {   "-h",                 "help"                                   },
-    { "--host",               "host",                                  },
-    {   "-H",                 "host",                                  },
-    { "--id",                 "str",  L_ID,            R_ID            },
-    {   "-i",                 "str",  L_ID,            R_ID            },
-    {  "--loc_id",            "str",  L_ID,                            },
-    {   "-li",                "str",  L_ID,                            },
-    {  "--rem_id",            "str",  R_ID                             },
-    {   "-ri",                "str",  R_ID                             },
-    { "--listen_port",        "Slp",                                   },
-    {   "-lp",                "Slp",                                   },
-    { "--msg_size",           "size", L_MSG_SIZE,      R_MSG_SIZE      },
-    {   "-m",                 "size", L_MSG_SIZE,      R_MSG_SIZE      },
-    { "--mtu_size",           "size", L_MTU_SIZE,      R_MTU_SIZE      },
-    {   "-M",                 "size", L_MTU_SIZE,      R_MTU_SIZE      },
-    { "--no_msgs",            "int",  L_NO_MSGS,       R_NO_MSGS       },
-    {   "-n",                 "int",  L_NO_MSGS,       R_NO_MSGS       },
-    { "--poll",               "int",  L_POLL_MODE,     R_POLL_MODE     },
-    {   "-P",                 "int",  L_POLL_MODE,     R_POLL_MODE     },
-    {  "--loc_poll",          "int",  L_POLL_MODE,                     },
-    {   "-lP",                "int",  L_POLL_MODE,                     },
-    {  "--rem_poll",          "int",  R_POLL_MODE                      },
-    {   "-rP",                "int",  R_POLL_MODE                      },
-    { "--port",               "int",  L_PORT,          R_PORT          },
-    {   "-p",                 "int",  L_PORT,          R_PORT          },
-    { "--precision",          "precision",                             },
-    {   "-e",                 "precision",                             },
-    { "--rate",               "str",  L_RATE,          R_RATE          },
-    {   "-r",                 "str",  L_RATE,          R_RATE          },
-    {  "--loc_rate",          "str",  L_RATE                           },
-    {   "-lr",                "str",  L_RATE                           },
-    {  "--rem_rate",          "str",  R_RATE                           },
-    {   "-rr",                "str",  R_RATE                           },
-    { "-rd_atomic",           "int",  L_RD_ATOMIC,     R_RD_ATOMIC     },
-    {   "-R",                 "int",  L_RD_ATOMIC,     R_RD_ATOMIC     },
-    {  "--loc_rd_atomic",     "int",  L_RD_ATOMIC,                     },
-    {   "-lR",                "int",  L_RD_ATOMIC,                     },
-    {  "--rem_rd_atomic",     "int",  R_RD_ATOMIC                      },
-    {   "-rR",                "int",  R_RD_ATOMIC                      },
-    { "--service_level",      "sl",   L_SL,            R_SL            },
-    {   "-sl",                "sl",   L_SL,            R_SL            },
-    {  "--loc_service_level", "sl",   L_SL                             },
-    {   "-lsl",               "sl",   L_SL                             },
-    {  "--rem_service_level", "sl",   R_SL                             },
-    {   "-rsl",               "sl",   R_SL                             },
-    { "--sock_buf_size",      "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
-    {   "-sb",                "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
-    {  "--loc_sock_buf_size", "size", L_SOCK_BUF_SIZE                  },
-    {   "-lsb",               "size", L_SOCK_BUF_SIZE                  },
-    {  "--rem_sock_buf_size", "size", R_SOCK_BUF_SIZE                  },
-    {   "-rsb",               "size", R_SOCK_BUF_SIZE                  },
-    { "--time",               "time", L_TIME,          R_TIME          },
-    {   "-t",                 "time", L_TIME,          R_TIME          },
-    { "--timeout",            "time", L_TIMEOUT,       R_TIMEOUT       },
-    {   "-to",                "time", L_TIMEOUT,       R_TIMEOUT       },
-    {  "--loc_timeout",       "time", L_TIMEOUT                        },
-    {   "-lto",               "time", L_TIMEOUT                        },
-    {  "--rem_timeout",       "time", R_TIMEOUT                        },
-    {   "-rto",               "time", R_TIMEOUT                        },
-    { "--unify_nodes",        "un",                                    },
-    {   "-un",                "un",                                    },
-    { "--unify_units",        "uu",                                    },
-    {   "-uu",                "uu",                                    },
-    { "--use_bits_per_sec",   "ub",                                    },
-    {   "-ub",                "ub",                                    },
-    { "--verbose",            "v",                                     },
-    {   "-v",                 "v",                                     },
-    { "--verbose_conf",       "vc",                                    },
-    {   "-vc",                "vc",                                    },
-    { "--verbose_stat",       "vs",                                    },
-    {   "-vs",                "vs",                                    },
-    { "--verbose_time",       "vt",                                    },
-    {   "-vt",                "vt",                                    },
-    { "--verbose_used",       "vu",                                    },
-    {   "-vu",                "vu",                                    },
-    { "--verbose_more",       "vv",                                    },
-    {   "-vv",                "vv",                                    },
-    { "--verbose_more_conf",  "vvc",                                   },
-    {   "-vvc",               "vvc",                                   },
-    { "--verbose_more_stat",  "vvs",                                   },
-    {   "-vvs",               "vvs",                                   },
-    { "--verbose_more_time",  "vvt",                                   },
-    {   "-vvt",               "vvt",                                   },
-    { "--verbose_more_used",  "vvu",                                   },
-    {   "-vvu",               "vvu",                                   },
-    { "--version",            "version",                               },
-    {   "-V",                 "version",                               },
-    { "--wait",               "wait",                                  },
-    {   "-W",                 "wait",                                  },
-
-    /* Obsolete options */
-    {   "-Ar",                "int",  L_ACCESS_RECV,   R_ACCESS_RECV   },
-    {   "-S",                 "size", L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
-    {   "-T",                 "time", L_TIMEOUT,       R_TIMEOUT       },
-    {   "-lT",                "time", L_TIMEOUT                        },
-    {   "-rT",                "time", R_TIMEOUT                        },
-    {   "-lS",                "size", L_SOCK_BUF_SIZE                  },
-    {   "-rS",                "size", R_SOCK_BUF_SIZE                  },
-    {   "-u",                 "Xuu",                                   },
-    {   "-vC",                "Xvvc",                                  },
-    {   "-vS",                "Xvvs",                                  },
-    {   "-vT",                "Xvvt",                                  },
-    {   "-vU",                "Xvvu",                                  },
+    { "--access_recv",        "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
+    {   "-ar",                "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
+    { "--affinity",           "int",   L_AFFINITY,      R_AFFINITY      },
+    {   "-a",                 "int",   L_AFFINITY,      R_AFFINITY      },
+    {  "--loc_affinity",      "int",   L_AFFINITY,                      },
+    {   "-la",                "int",   L_AFFINITY,                      },
+    {  "--rem_affinity",      "int",   R_AFFINITY                       },
+    {   "-ra",                "int",   R_AFFINITY                       },
+    { "--debug",              "Sdebug",                                 },
+    {   "-D",                 "Sdebug",                                 },
+    { "--flip",               "int",   L_FLIP,          R_FLIP          },
+    {   "-f",                 "int",   L_FLIP,          R_FLIP          },
+    { "--help",               "help"                                    }, 
+    {   "-h",                 "help"                                    }, 
+    { "--host",               "host",                                   },
+    {   "-H",                 "host",                                   },
+    { "--id",                 "str",   L_ID,            R_ID            },
+    {   "-i",                 "str",   L_ID,            R_ID            },
+    {  "--loc_id",            "str",   L_ID,                            },
+    {   "-li",                "str",   L_ID,                            },
+    {  "--rem_id",            "str",   R_ID                             },
+    {   "-ri",                "str",   R_ID                             },
+    { "--listen_port",        "Slp",                                    },
+    {   "-lp",                "Slp",                                    },
+    { "--msg_size",           "size",  L_MSG_SIZE,      R_MSG_SIZE      },
+    {   "-m",                 "size",  L_MSG_SIZE,      R_MSG_SIZE      },
+    { "--mtu_size",           "size",  L_MTU_SIZE,      R_MTU_SIZE      },
+    {   "-mt",                "size",  L_MTU_SIZE,      R_MTU_SIZE      },
+    { "--no_msgs",            "int",   L_NO_MSGS,       R_NO_MSGS       },
+    {   "-n",                 "int",   L_NO_MSGS,       R_NO_MSGS       },
+    { "--poll",               "int",   L_POLL_MODE,     R_POLL_MODE     },
+    {   "-P",                 "int",   L_POLL_MODE,     R_POLL_MODE     },
+    {  "--loc_poll",          "int",   L_POLL_MODE,                     },
+    {   "-lP",                "int",   L_POLL_MODE,                     },
+    {  "--rem_poll",          "int",   R_POLL_MODE                      },
+    {   "-rP",                "int",   R_POLL_MODE                      },
+    { "--port",               "int",   L_PORT,          R_PORT          },
+    {   "-p",                 "int",   L_PORT,          R_PORT          },
+    { "--precision",          "precision",                              },
+    {   "-e",                 "precision",                              },
+    { "--rd_atomic",          "int",   L_RD_ATOMIC,     R_RD_ATOMIC     },
+    {   "-nr",                "int",   L_RD_ATOMIC,     R_RD_ATOMIC     },
+    {  "--loc_rd_atomic",     "int",   L_RD_ATOMIC,                     },
+    {   "-lnr",               "int",   L_RD_ATOMIC,                     },
+    {  "--rem_rd_atomic",     "int",   R_RD_ATOMIC                      },
+    {   "-rnr",               "int",   R_RD_ATOMIC                      },
+    { "--service_level",      "sl",    L_SL,            R_SL            },
+    {   "-sl",                "sl",    L_SL,            R_SL            },
+    {  "--loc_service_level", "sl",    L_SL                             },
+    {   "-lsl",               "sl",    L_SL                             },
+    {  "--rem_service_level", "sl",    R_SL                             },
+    {   "-rsl",               "sl",    R_SL                             },
+    { "--sock_buf_size",      "size",  L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
+    {   "-sb",                "size",  L_SOCK_BUF_SIZE, R_SOCK_BUF_SIZE },
+    {  "--loc_sock_buf_size", "size",  L_SOCK_BUF_SIZE                  },
+    {   "-lsb",               "size",  L_SOCK_BUF_SIZE                  },
+    {  "--rem_sock_buf_size", "size",  R_SOCK_BUF_SIZE                  },
+    {   "-rsb",               "size",  R_SOCK_BUF_SIZE                  },
+    { "--static_rate",        "str",   L_STATIC_RATE,   R_STATIC_RATE   },
+    {   "-sr",                "str",   L_STATIC_RATE,   R_STATIC_RATE   },
+    {  "--loc_static_rate",   "str",   L_STATIC_RATE                    },
+    {   "-lsr",               "str",   L_STATIC_RATE                    },
+    {  "--rem_static_rate",   "str",   R_STATIC_RATE                    },
+    {   "-rsr",               "str",   R_STATIC_RATE                    },
+    { "--time",               "time",  L_TIME,          R_TIME          },
+    {   "-t",                 "time",  L_TIME,          R_TIME          },
+    { "--timeout",            "time",  L_TIMEOUT,       R_TIMEOUT       },
+    {   "-to",                "time",  L_TIMEOUT,       R_TIMEOUT       },
+    {  "--loc_timeout",       "Stime", L_TIMEOUT                        },
+    {   "-lto",               "Stime", L_TIMEOUT                        },
+    {  "--rem_timeout",       "time",  R_TIMEOUT                        },
+    {   "-rto",               "time",  R_TIMEOUT                        },
+    { "--unify_nodes",        "un",                                     },
+    {   "-un",                "un",                                     },
+    { "--unify_units",        "uu",                                     },
+    {   "-uu",                "uu",                                     },
+    { "--use_bits_per_sec",   "ub",                                     },
+    {   "-ub",                "ub",                                     },
+    { "--use_cm",             "int",   L_USE_CM,        R_USE_CM        },
+    {   "-cm",                "int",   L_USE_CM,        R_USE_CM        },
+    { "--verbose",            "v",                                      },
+    {   "-v",                 "v",                                      },
+    { "--verbose_conf",       "vc",                                     },
+    {   "-vc",                "vc",                                     },
+    { "--verbose_stat",       "vs",                                     },
+    {   "-vs",                "vs",                                     },
+    { "--verbose_time",       "vt",                                     },
+    {   "-vt",                "vt",                                     },
+    { "--verbose_used",       "vu",                                     },
+    {   "-vu",                "vu",                                     },
+    { "--verbose_more",       "vv",                                     },
+    {   "-vv",                "vv",                                     },
+    { "--verbose_more_conf",  "vvc",                                    },
+    {   "-vvc",               "vvc",                                    },
+    { "--verbose_more_stat",  "vvs",                                    },
+    {   "-vvs",               "vvs",                                    },
+    { "--verbose_more_time",  "vvt",                                    },
+    {   "-vvt",               "vvt",                                    },
+    { "--verbose_more_used",  "vvu",                                    },
+    {   "-vvu",               "vvu",                                    },
+    { "--version",            "version",                                },
+    {   "-V",                 "version",                                },
+    { "--wait",               "wait",                                   },
+    {   "-W",                 "wait",                                   },
 };
 
 
@@ -645,7 +681,7 @@ do_args(char *args[])
         server();
     else if (!testSpecified) {
         if (!ServerName)
-            error(0, "you used a client only option but did not specify the "
+            error(0, "you used a client-only option but did not specify the "
                       "server name.\nDo you want to be a client or server?");
         if (find_test(ServerName))
             error(0, "must specify host name first; try: qperf --help");
@@ -660,8 +696,23 @@ do_args(char *args[])
 static OPTION *
 find_option(char *name)
 {
-    int n = cardof(Options);
-    OPTION *p = Options;
+    int n;
+    DICT *d;
+    OPTION *p;
+
+    n = cardof(Renamed);
+    d = Renamed;
+    for (; n--; ++d) {
+        if (streq(name, d->str1)) {
+            char *msg = "warning: obsolete option: %s; use %s instead";
+            error(RET, msg, name, d->str2);
+            name = d->str2;
+            break;
+        }
+    }
+
+    n = cardof(Options);
+    p = Options;
     for (; n--; ++p)
         if (streq(name, p->name))
             return p;
@@ -694,11 +745,6 @@ do_option(OPTION *option, char ***argvp)
 
     if (*t == 'S')
         ++t;
-    if (*t == 'X') {
-        ++t;
-        error(RET, "warning: obsolete option: %s; use -%s instead",
-                                                            option->name, t);
-    }
 
     if (streq(t, "debug")) {
         Debug = 1;
@@ -740,7 +786,6 @@ do_option(OPTION *option, char ***argvp)
         setp_u32(option->name, option->arg1, v);
         setp_u32(option->name, option->arg2, v);
     } else if (streq(t, "str")) {
-        /* String */
         char *s = arg_strn(argvp);
         setp_str(option->name, option->arg1, s);
         setp_str(option->name, option->arg2, s);
@@ -763,8 +808,8 @@ do_option(OPTION *option, char ***argvp)
         if (VerboseStat < 1)
             VerboseStat = 1;
         if (VerboseTime < 1)
-            VerboseUsed = 1;
-        if (VerboseConf < 1)
+            VerboseTime = 1;
+        if (VerboseUsed < 1)
             VerboseUsed = 1;
         *argvp += 1;
     } else if (streq(t, "vc")) {
@@ -1149,7 +1194,8 @@ server_listen(void)
     if (!ai)
         error(0, "unable to bind to listen port");
 
-    Req.timeout = ServerTimeout;
+    if (!Req.timeout)
+        Req.timeout = DEF_TIMEOUT;
     if (listen(ListenFD, LISTENQ) < 0)
         error(SYS, "listen failed");
 }
@@ -1183,11 +1229,11 @@ client(TEST *test)
     for (i = 0; i < P_N; ++i)
         ParInfo[i].inuse = 0;
     if (!par_isset(L_NO_MSGS))
-        setp_u32(0, L_TIME, 2);
+        setp_u32(0, L_TIME, DEF_TIME);
     if (!par_isset(R_NO_MSGS))
-        setp_u32(0, R_TIME, 2);
-    setp_u32(0, L_TIMEOUT, 5);
-    setp_u32(0, R_TIMEOUT, 5);
+        setp_u32(0, R_TIME, DEF_TIME);
+    setp_u32(0, L_TIMEOUT, DEF_TIMEOUT);
+    setp_u32(0, R_TIMEOUT, DEF_TIMEOUT);
     par_use(L_AFFINITY);
     par_use(R_AFFINITY);
     par_use(L_TIME);
@@ -2361,8 +2407,9 @@ enc_req(REQ *host)
     enc_int(host->sock_buf_size, sizeof(host->sock_buf_size));
     enc_int(host->time,          sizeof(host->time));
     enc_int(host->timeout,       sizeof(host->timeout));
+    enc_int(host->use_cm,        sizeof(host->use_cm));
     enc_str(host->id,            sizeof(host->id));
-    enc_str(host->rate,          sizeof(host->rate));
+    enc_str(host->static_rate,   sizeof(host->static_rate));
 }
 
 
@@ -2389,8 +2436,9 @@ dec_req(REQ *host)
     host->sock_buf_size = dec_int(sizeof(host->sock_buf_size));
     host->time          = dec_int(sizeof(host->time));
     host->timeout       = dec_int(sizeof(host->timeout));
-                          dec_str(host->id,   sizeof(host->id));
-                          dec_str(host->rate, sizeof(host->rate));
+    host->use_cm        = dec_int(sizeof(host->use_cm));
+                          dec_str(host->id, sizeof(host->id));
+                          dec_str(host->static_rate,sizeof(host->static_rate));
 }
 
 
