@@ -70,11 +70,10 @@
 /*
  * Default parameter values.
  */
-#define DEF_TIME            2           /* Test duration */
-#define DEF_TIMEOUT         5           /* Timeout */
-#define DEF_SERVER_TIMEOUT  3           /* Server timeout */
-#define DEF_PRECISION       3           /* Precision displayed */
-#define DEF_LISTEN_PORT     19765       /* Listen port */
+#define DEF_TIME        2               /* Test duration */
+#define DEF_TIMEOUT     5               /* Timeout */
+#define DEF_PRECISION   3               /* Precision displayed */
+#define DEF_LISTEN_PORT 19765           /* Listen port */
 
 
 /*
@@ -167,7 +166,8 @@ static void     calc_results(void);
 static void     client(TEST *test);
 static int      cmpsub(char *s2, char *s1);
 static char    *commify(char *data);
-static void     dec_req(REQ *host);
+static void     dec_req_data(REQ *host);
+static void     dec_req_version(REQ *host);
 static void     dec_stat(STAT *host);
 static void     dec_ustat(USTAT *host);
 static void     do_args(char *args[]);
@@ -1096,10 +1096,10 @@ server(void)
 {
     server_listen();
     for (;;) {
-        int n;
         REQ req;
         pid_t pid;
         TEST *test;
+        int s = offset(REQ, req_index);
 
         debug("waiting for request");
         if (!server_recv_request())
@@ -1116,15 +1116,13 @@ server(void)
         }
         remotefd_setup();
 
-        n = recv_mesg(&req, sizeof(req), 0);
-        if (n < offset(REQ, req_index))
-            error(0, "failed to receive request data: timed out");
+        recv_mesg(&req, s, "request version");
         dec_init(&req);
-        dec_req(&Req);
+        dec_req_version(&Req);
         if (Req.ver_maj != VER_MAJ || Req.ver_min != VER_MIN)
             version_error();
-        if (n != sizeof(req))
-            error(0, "failed to receive all request data: timed out");
+        recv_mesg(&req.req_index, sizeof(req)-s, "request data");
+        dec_req_data(&Req);
         if (Req.req_index >= cardof(Tests))
             error(0, "bad request index: %d", Req.req_index);
 
@@ -1143,30 +1141,31 @@ server(void)
 
 
 /*
- * Print out a version error.
+ * If there is a version mismatch of qperf between the client and server, tell
+ * the user which needs to be upgraded.
  */
 static void
 version_error(void)
 {
-    int h_maj = Req.ver_maj;
-    int h_min = Req.ver_min;
-    int h_inc = Req.ver_inc;
-    int l_maj = VER_MAJ;
-    int l_min = VER_MIN;
-    int l_inc = VER_INC;
+    int hi_maj = Req.ver_maj;
+    int hi_min = Req.ver_min;
+    int hi_inc = Req.ver_inc;
+    int lo_maj = VER_MAJ;
+    int lo_min = VER_MIN;
+    int lo_inc = VER_INC;
     char *msg = "upgrade qperf on %s from %d.%d.%d to %d.%d.%d";
-    char *low = "client";
+    char *low = "server";
 
-    if (l_maj > h_maj || (l_maj == h_maj && l_min > h_min)) {
-        h_maj = VER_MAJ;
-        h_min = VER_MIN;
-        h_inc = VER_INC;
-        l_maj = Req.ver_maj;
-        l_min = Req.ver_min;
-        l_inc = Req.ver_inc;
-        low   = "server";
+    if (lo_maj > hi_maj || (lo_maj == hi_maj && lo_min > hi_min)) {
+        hi_maj = VER_MAJ;
+        hi_min = VER_MIN;
+        hi_inc = VER_INC;
+        lo_maj = Req.ver_maj;
+        lo_min = Req.ver_min;
+        lo_inc = Req.ver_inc;
+        low   = "client";
     }
-    error(0, msg, low, l_maj, l_min, l_inc, h_maj, h_min, h_inc);
+    error(0, msg, low, lo_maj, lo_min, lo_inc, hi_maj, hi_min, hi_inc);
 }
 
 
@@ -1203,7 +1202,7 @@ server_listen(void)
         error(0, "unable to bind to listen port");
 
     if (!Req.timeout)
-        Req.timeout = DEF_SERVER_TIMEOUT;
+        Req.timeout = DEF_TIMEOUT;
     if (listen(ListenFD, LISTENQ) < 0)
         error(SYS, "listen failed");
 }
@@ -1519,12 +1518,8 @@ get_cpu(CONF *conf)
     /* Number of CPUs */
     if (cpus == 1)
         count[0] = '\0';
-    else if (cpus == 2)
-        snprintf(count, sizeof(count), "Dual-Core ");
-    else if (cpus == 4)
-        snprintf(count, sizeof(count), "Quad-Core ");
     else
-        snprintf(count, sizeof(count), "%d-Core ", cpus);
+        snprintf(count, sizeof(count), "%d Cores: ", cpus);
 
     snprintf(conf->cpu, sizeof(conf->cpu), "%s%s%s", count, cpu, speed);
 }
@@ -2422,14 +2417,25 @@ enc_req(REQ *host)
 
 
 /*
- * Decode a REQ structure from a data stream.
+ * Decode the version part of a REQ structure from a data stream.  To decode
+ * the entire REQ structure, call dec_req_version and dec_req_data in
+ * succession.
  */
 static void
-dec_req(REQ *host)
+dec_req_version(REQ *host)
 {
     host->ver_maj       = dec_int(sizeof(host->ver_maj));
     host->ver_min       = dec_int(sizeof(host->ver_min));
     host->ver_inc       = dec_int(sizeof(host->ver_inc));
+}
+
+
+/*
+ * Decode the data part of a REQ structure from a data stream.
+ */
+static void
+dec_req_data(REQ *host)
+{
     host->req_index     = dec_int(sizeof(host->req_index));
     host->access_recv   = dec_int(sizeof(host->access_recv));
     host->affinity      = dec_int(sizeof(host->affinity));

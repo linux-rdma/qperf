@@ -259,10 +259,9 @@ Options
           such as exchanging messages.  The default is 5 seconds.
       --loc_timeout Time (-lto)
           Set local timeout to Time.  This may be used on the server to set
-          the initial timeout when exchanging data with the client.  However,
-          as soon as we receive the client's parameters, the client's remote
-          timeout will override this parameter.  Default value of the initial
-          timeout is 3.
+          the timeout when initially exchanging data with each client.
+          However, as soon as we receive the client's parameters, the client's
+          remote timeout will override this parameter.
       --rem_timeout Time (-rto)
           Set remote timeout to Time.
     --unify_nodes (-un)
