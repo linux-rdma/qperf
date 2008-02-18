@@ -49,6 +49,7 @@
 #define cardof(a)       (sizeof(a)/sizeof(*a))
 #define endof(a)        (&a[cardof(a)])
 #define streq(a, b)     (strcmp(a, b) == 0)
+#define offset(t, e)    ((int)&((t *)0)->e)
 #define is_client()     (ServerName != 0)
 #define is_sender()     (Req.flip ? !is_client() : is_client())
 
@@ -141,7 +142,8 @@ typedef enum {
 /*
  * Request to the server.  Note that most of these must be of type uint32_t
  * because of the way options are set.  The minor version must be changed if
- * there is a change to this data structure.
+ * there is a change to this data structure.  Do not move or change the first
+ * four elements.
  */
 typedef struct REQ {
     uint16_t    ver_maj;                /* Major version */
@@ -231,8 +233,8 @@ void        exchange_results(void);
 int         left_to_send(long *sentp, int room);
 void        opt_check(void);
 void        par_use(PAR_INDEX index);
-void        recv_mesg(void *ptr, int len, char *item);
-void        send_mesg(void *ptr, int len, char *item);
+int         recv_mesg(void *ptr, int len, char *item);
+int         send_mesg(void *ptr, int len, char *item);
 void        set_finished(void);
 void        setp_u32(char *name, PAR_INDEX index, uint32_t l);
 void        setp_str(char *name, PAR_INDEX index, char *s);

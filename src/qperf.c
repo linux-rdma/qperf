@@ -70,10 +70,11 @@
 /*
  * Default parameter values.
  */
-#define DEF_TIME        2               /* Test duration in seconds */
-#define DEF_TIMEOUT     5               /* Timeout in seconds */
-#define DEF_PRECISION   3               /* Precision of results */
-#define DEF_LISTEN_PORT 19765           /* Listen port */
+#define DEF_TIME            2           /* Test duration */
+#define DEF_TIMEOUT         5           /* Timeout */
+#define DEF_SERVER_TIMEOUT  3           /* Server timeout */
+#define DEF_PRECISION       3           /* Precision displayed */
+#define DEF_LISTEN_PORT     19765       /* Listen port */
 
 
 /*
@@ -1095,6 +1096,7 @@ server(void)
 {
     server_listen();
     for (;;) {
+        int n;
         REQ req;
         pid_t pid;
         TEST *test;
@@ -1113,13 +1115,19 @@ server(void)
             continue;
         }
         remotefd_setup();
-        recv_mesg(&req, sizeof(req), "request data");
+
+        n = recv_mesg(&req, sizeof(req), 0);
+        if (n < offset(REQ, req_index))
+            error(0, "failed to receive request data: timed out");
         dec_init(&req);
         dec_req(&Req);
         if (Req.ver_maj != VER_MAJ || Req.ver_min != VER_MIN)
             version_error();
+        if (n != sizeof(req))
+            error(0, "failed to receive all request data: timed out");
         if (Req.req_index >= cardof(Tests))
             error(0, "bad request index: %d", Req.req_index);
+
         test = &Tests[Req.req_index];
         TestName = test->name;
         debug("request is %s", TestName);
@@ -1195,7 +1203,7 @@ server_listen(void)
         error(0, "unable to bind to listen port");
 
     if (!Req.timeout)
-        Req.timeout = DEF_TIMEOUT;
+        Req.timeout = DEF_SERVER_TIMEOUT;
     if (listen(ListenFD, LISTENQ) < 0)
         error(SYS, "listen failed");
 }

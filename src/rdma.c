@@ -1931,7 +1931,8 @@ ib_poll(RDEV *rdev, struct ibv_wc *wc, int nwc)
 /*
  * We encountered an error in a system call which might simply have been
  * interrupted by the alarm that signaled completion of the test.  Generate the
- * error if appropriate or return the requested value.
+ * error if appropriate or return the requested value.  Final return is just to
+ * silence the compiler.
  */
 static int
 maybe(int val, char *msg)
@@ -1939,6 +1940,7 @@ maybe(int val, char *msg)
     if (Finished && errno == EINTR)
         return val;
     error(SYS, msg);
+    return 0;
 }
 
 

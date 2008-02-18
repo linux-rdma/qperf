@@ -65,7 +65,7 @@ static void     buf_end(char **pp, char *end);
 static double   get_seconds(void);
 static void     remote_failure_error(void);
 static char    *remote_name(void);
-static void     send_recv_mesg(int sr, char *item, int fd, char *buf, int len);
+static int      send_recv_mesg(int sr, char *item, int fd, char *buf, int len);
 static SIGFUNC  sig_alrm_remote_failure;
 static SIGFUNC  sig_alrm_die;
 static void     timeout_set(int seconds, SIGFUNC sigfunc);
@@ -247,22 +247,24 @@ recv_sync(char *msg)
 /*
  * Send a message to the client.
  */
-void
+int
 send_mesg(void *ptr, int len, char *item)
 {
-    debug("sending %s", item);
-    send_recv_mesg('s', item, RemoteFD, ptr, len);
+    if (item)
+        debug("sending %s", item);
+    return send_recv_mesg('s', item, RemoteFD, ptr, len);
 }
 
 
 /*
  * Receive a response from the server.
  */
-void
+int
 recv_mesg(void *ptr, int len, char *item)
 {
-    debug("waiting for %s", item);
-    send_recv_mesg('r', item, RemoteFD, ptr, len);
+    if (item)
+        debug("waiting for %s", item);
+    return send_recv_mesg('r', item, RemoteFD, ptr, len);
 }
 
 
@@ -270,7 +272,7 @@ recv_mesg(void *ptr, int len, char *item)
  * Send or receive a message to a file descriptor timing out after a certain
  * amount of time.
  */
-static void
+static int
 send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
 {
     typedef ssize_t (IO)(int fd, void *buf, size_t count);
@@ -280,6 +282,7 @@ send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
     fd_set  wfdset;
     char   *action;
     IO     *func;
+    int     ioc = 0;
 
     if (sr == 'r') {
         func = (IO *)read;
@@ -299,8 +302,11 @@ send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
 
         errno = 0;
         time = etime - get_seconds();
-        if (time <= 0)
+        if (time <= 0) {
+            if (!item)
+                return ioc;
             error(0, "failed to %s %s: timed out", action, item);
+        }
         n = time += 1.0 / (1000*1000);
         timeval.tv_sec  = n;
         timeval.tv_usec = (time-n) * 1000*1000;
@@ -313,14 +319,20 @@ send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
         if (!FD_ISSET(fd, fdset))
             continue;
         n = func(fd, buf, len);
-        if (n < 0)
-            error(SYS, "failed to %s %s", action, item);
-        if (n == 0) {
-            error(SYS, "failed to %s %s: %s not responding",
+        if (n <= 0) {
+            if (!item)
+                return ioc;
+            if (n < 0)
+                error(SYS, "failed to %s %s", action, item);
+            if (n == 0) {
+                error(SYS, "failed to %s %s: %s not responding",
                                                 action, item, remote_name());
+            }
         }
         len -= n;
+        ioc += n;
     }
+    return ioc;
 }
 
 
