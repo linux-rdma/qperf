@@ -139,8 +139,8 @@ Opts
       --loc_sock_buf_size Size (-lsb)   Set local socket buffer size
       --rem_sock_buf_size Size (-rsb)   Set remote socket buffer size
     --static_rate (-sr)                 Set IB static rate
-      --loc_rate (-lr)                  Set local IB static rate
-      --rem_rate (-rr)                  Set remote IB static rate
+      --loc_static_rate (-lsr)          Set local IB static rate
+      --rem_static_rate (-rsr)          Set remote IB static rate
     --time Time (-t)                    Set test duration
     --timeout Time (-to)                Set timeout
       --loc_timeout Time (-lto)         Set local timeout
@@ -246,9 +246,9 @@ Options
           30, 40, 60, 80, 120, 1xSDR (2.5 Gbps), 1xDDR (5 Gbps), 1xQDR (10
           Gbps), 4xSDR (2.5 Gbps), 4xDDR (5 Gbps), 4xQDR (10 Gbps), 8xSDR (2.5
           Gbps), 8xDDR (5 Gbps), 8xQDR (10 Gbps).
-      --loc_rate (-lr)
+      --loc_static_rate (-lsr)
           Force local InfiniBand static rate
-      --rem_rate (-rr)
+      --rem_static_rate (-rsr)
           Force remote InfiniBand static rate
     --time Time (-t)
           Set test duration to Time.  Specified in seconds however a trailing
