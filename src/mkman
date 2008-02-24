@@ -75,7 +75,7 @@ sub do_options ($$) {
     my $text = $dict->{$name};
     printh $name;
     $text =~ s/^\s*//;
-    my @options = split(/^\s{4,6}(?=--)/m, $text);
+    my @options = split(/^\s{4,6}(?=-)/m, $text);
     for my $option (@options) {
         $option =~ s/(.*)\n\s*//;
         my $head = $1;

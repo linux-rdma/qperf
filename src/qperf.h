@@ -58,6 +58,7 @@
  * Type definitions.
  */
 typedef uint64_t CLOCK;
+typedef struct addrinfo AI;
 typedef struct sockaddr SA;
 typedef struct sockaddr_storage SS;
 
@@ -252,11 +253,14 @@ void        debug(char *fmt, ...);
 void        dec_init(void *p);
 int64_t     dec_int(int n);
 void        dec_str(char *s, int  n);
+uint32_t    decode_uint32(uint32_t *p);
 void        die(void);
 void        enc_init(void *p);
 void        enc_int(int64_t l, int n);
 void        enc_str(char *s, int n);
+void        encode_uint32(uint32_t *p, uint32_t v);
 int         error(int actions, char *fmt, ...);
+AI         *getaddrinfo_port(char *node, int port, AI *hints);
 char       *qasprintf(char *fmt, ...);
 void       *qmalloc(long n);
 void        recv_sync(char *msg);

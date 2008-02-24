@@ -35,6 +35,7 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
@@ -149,6 +150,28 @@ dec_int(int n)
 
 
 /*
+ * Encode a 32 bit unsigned integer.
+ */
+void
+encode_uint32(uint32_t *p, uint32_t v)
+{
+    enc_init(p);
+    enc_int(v, sizeof(v));
+}
+
+
+/*
+ * Decode a 32 bit unsigned integer.
+ */
+uint32_t
+decode_uint32(uint32_t *p)
+{
+    dec_init(p);
+    return dec_int(sizeof(uint32_t));
+}
+
+
+/*
  * Call malloc and exit with an error on failure.
  */
 void *
@@ -239,7 +262,7 @@ recv_sync(char *msg)
     if (n > sizeof(data))
         error(BUG, "buffer in recv_sync() too small");
     recv_mesg(data, n, msg);
-    if (memcmp(data, msg, n) != SUCCESS0)
+    if (memcmp(data, msg, n) != 0)
         error(0, "synchronize %s failure: data does not match", msg);
 }
 
@@ -325,7 +348,7 @@ send_recv_mesg(int sr, char *item, int fd, char *buf, int len)
             if (n < 0)
                 error(SYS, "failed to %s %s", action, item);
             if (n == 0) {
-                error(SYS, "failed to %s %s: %s not responding",
+                error(0, "failed to %s %s: %s not responding",
                                                 action, item, remote_name());
             }
         }
@@ -347,6 +370,25 @@ get_seconds(void)
     if (gettimeofday(&timeval, 0) < 0)
         error(SYS, "gettimeofday failed");
     return timeval.tv_sec + timeval.tv_usec/(1000.0*1000.0);
+}
+
+
+/*
+ * Call getaddrinfo given a numeric port.  Complain on error.
+ */
+struct addrinfo *
+getaddrinfo_port(char *node, int port, struct addrinfo *hints)
+{
+    struct addrinfo *res;
+
+    char *service = qasprintf("%d", port);
+    int stat = getaddrinfo(node, service, hints, &res);
+    free(service);
+    if (stat != 0)
+        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
+    if (!res)
+        error(0, "getaddrinfo failed: no valid entries");
+    return res;
 }
 
 
@@ -465,7 +507,7 @@ error(int actions, char *fmt, ...)
     va_start(alist, fmt);
     p += vsnprintf(p, q-p, fmt, alist);
     va_end(alist);
-    if ((actions & SYS) != 0) {
+    if ((actions & SYS) != 0 && errno) {
         buf_app(&p, q, ": ");
         buf_app(&p, q, strerror(errno));
     }

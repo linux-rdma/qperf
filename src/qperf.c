@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 0                       /* Incremental version */
+#define VER_INC 1                       /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -334,28 +334,54 @@ PAR_INFO ParInfo[P_N] ={
  * Renamed options.  First is old, second is new.
  */
 DICT Renamed[] = {
+    /* -a becomes -ca (--cpu_affinity) */
+    { "--affinity",         "--cpu_affinity"        },
+    {   "-a",               "-ca"                   },
+    {  "--loc_affinity",    "--loc_cpu_affinity"    },
+    {   "-la",              "-lca"                  },
+    {  "--rem_affinity",    "--rem_cpu_affinity"    },
+    {   "-ra",              "-rca"                  },
+    /* -r becomes -sr (--static_rate) */
     { "--rate",             "--static_rate"         },
     {   "-r",               "-sr"                   },
     {  "--loc_rate",        "--loc_static_rate"     },
     {   "-lr",              "-lsr"                  },
     {  "--rem_rate",        "--rem_static_rate"     },
     {   "-rr",              "-rsr"                  },
+    /* -p becomes -ip (--ip_port) */
+    { "--port",             "--ip_port"             },
+    {   "-p",               "-ip"                   },
+    /* -P becomes -cp (--cq_poll) */
+    { "--poll",             "--cq_poll"             },
+    {   "-P",               "-cp"                   },
+    {  "--loc_poll",        "--loc_cq_poll"         },
+    {   "-lP",              "-lcp"                  },
+    {  "--rem_poll",        "--rem_cq_poll"         },
+    {   "-rP",              "-rcp"                  },
+    /* -R becomes -nr (--rd_atomic) */
     {   "-R",               "-nr"                   },
     {   "-lR",              "-lnr"                  },
     {   "-rR",              "-rnr"                  },
-    {   "-Ar",              "-ar"                   },
-    {   "-M",               "-mt"                   },
-    {   "-S",               "-sb"                   },
-    {   "-lS",              "-lsb"                  },
-    {   "-rS",              "-rsb"                  },
+    /* -T becomes -to (--timeout) */
     {   "-T",               "-to"                   },
     {   "-lT",              "-lto"                  },
     {   "-rT",              "-rto"                  },
-    {   "-u",               "-uu",                  },
+    /* -S becomes -sb (--sock_buf_size) */
+    {   "-S",               "-sb"                   },
+    {   "-lS",              "-lsb"                  },
+    {   "-rS",              "-rsb"                  },
+    /* -W becomes -ws (--wait_server) */
+    { "--wait",             "--wait_server"         },
+    {   "-W",               "-ws"                   },
+    /* verbose options */
     {   "-vC",              "-vvc",                 },
     {   "-vS",              "-vvs",                 },
     {   "-vT",              "-vvt",                 },
     {   "-vU",              "-vvu",                 },
+    /* miscellaneous */
+    {   "-Ar",              "-ar"                   },
+    {   "-M",               "-mt"                   },
+    {   "-u",               "-uu",                  },
 };
 
 
@@ -367,16 +393,18 @@ DICT Renamed[] = {
 OPTION Options[] ={
     { "--access_recv",        "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
     {   "-ar",                "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
-    { "--affinity",           "int",   L_AFFINITY,      R_AFFINITY      },
-    {   "-a",                 "int",   L_AFFINITY,      R_AFFINITY      },
-    {  "--loc_affinity",      "int",   L_AFFINITY,                      },
-    {   "-la",                "int",   L_AFFINITY,                      },
-    {  "--rem_affinity",      "int",   R_AFFINITY                       },
-    {   "-ra",                "int",   R_AFFINITY                       },
+    {   "-aro",               "set1",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    { "--cpu_affinity",       "int",   L_AFFINITY,      R_AFFINITY      },
+    {   "-ca",                "int",   L_AFFINITY,      R_AFFINITY      },
+    {  "--loc_cpu_affinity",  "int",   L_AFFINITY,                      },
+    {   "-lca",               "int",   L_AFFINITY,                      },
+    {  "--rem_cpu_affinity",  "int",   R_AFFINITY                       },
+    {   "-rca",               "int",   R_AFFINITY                       },
     { "--debug",              "Sdebug",                                 },
     {   "-D",                 "Sdebug",                                 },
     { "--flip",               "int",   L_FLIP,          R_FLIP          },
     {   "-f",                 "int",   L_FLIP,          R_FLIP          },
+    {   "-fo",                "set1",  L_FLIP,          R_FLIP          },
     { "--help",               "help"                                    }, 
     {   "-h",                 "help"                                    }, 
     { "--host",               "host",                                   },
@@ -395,14 +423,17 @@ OPTION Options[] ={
     {   "-mt",                "size",  L_MTU_SIZE,      R_MTU_SIZE      },
     { "--no_msgs",            "int",   L_NO_MSGS,       R_NO_MSGS       },
     {   "-n",                 "int",   L_NO_MSGS,       R_NO_MSGS       },
-    { "--poll",               "int",   L_POLL_MODE,     R_POLL_MODE     },
-    {   "-P",                 "int",   L_POLL_MODE,     R_POLL_MODE     },
-    {  "--loc_poll",          "int",   L_POLL_MODE,                     },
-    {   "-lP",                "int",   L_POLL_MODE,                     },
-    {  "--rem_poll",          "int",   R_POLL_MODE                      },
-    {   "-rP",                "int",   R_POLL_MODE                      },
-    { "--port",               "int",   L_PORT,          R_PORT          },
-    {   "-p",                 "int",   L_PORT,          R_PORT          },
+    { "--cq_poll",            "int",   L_POLL_MODE,     R_POLL_MODE     },
+    {  "-cp",                 "int",   L_POLL_MODE,     R_POLL_MODE     },
+    {   "-cpo",               "set1",  L_POLL_MODE,     R_POLL_MODE     },
+    {  "--loc_cq_poll",       "int",   L_POLL_MODE,                     },
+    {   "-lcp",               "int",   L_POLL_MODE,                     },
+    {   "-lcpo",              "set1",  L_POLL_MODE                      },
+    {  "--rem_cq_poll",       "int",   R_POLL_MODE                      },
+    {   "-rcp",               "int",   R_POLL_MODE                      },
+    {   "-rcpo",              "set1",  R_POLL_MODE                      },
+    { "--ip_port",            "int",   L_PORT,          R_PORT          },
+    {   "-ip",                "int",   L_PORT,          R_PORT          },
     { "--precision",          "precision",                              },
     {   "-e",                 "precision",                              },
     { "--rd_atomic",          "int",   L_RD_ATOMIC,     R_RD_ATOMIC     },
@@ -445,6 +476,7 @@ OPTION Options[] ={
     {   "-ub",                "ub",                                     },
     { "--use_cm",             "int",   L_USE_CM,        R_USE_CM        },
     {   "-cm",                "int",   L_USE_CM,        R_USE_CM        },
+    {   "-cmo",               "set1",  L_USE_CM,        R_USE_CM        },
     { "--verbose",            "v",                                      },
     {   "-v",                 "v",                                      },
     { "--verbose_conf",       "vc",                                     },
@@ -467,8 +499,8 @@ OPTION Options[] ={
     {   "-vvu",               "vvu",                                    },
     { "--version",            "version",                                },
     {   "-V",                 "version",                                },
-    { "--wait",               "wait",                                   },
-    {   "-W",                 "wait",                                   },
+    { "--wait_server",        "wait",                                   },
+    {   "-ws",                "wait",                                   },
 };
 
 
@@ -776,6 +808,10 @@ do_option(OPTION *option, char ***argvp)
         ListenPort = arg_long(argvp);
     } else if (streq(t, "precision")) {
         Precision = arg_long(argvp);
+    } else if (streq(t, "set1")) {
+        setp_u32(option->name, option->arg1, 1);
+        setp_u32(option->name, option->arg2, 1);
+        *argvp += 1;
     } else if (streq(t, "size")) {
         long v = arg_size(argvp);
         setp_u32(option->name, option->arg1, v);
@@ -1175,19 +1211,14 @@ version_error(void)
 static void
 server_listen(void)
 {
-    struct addrinfo *ai, *ailist;
-    struct addrinfo hints ={
+    AI *ai;
+    AI hints ={
         .ai_flags    = AI_PASSIVE | AI_NUMERICSERV,
         .ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
     };
-    char *service = qasprintf("%d", ListenPort);
-    int stat = getaddrinfo(0, service, &hints, &ailist);
 
-    if (stat != SUCCESS0)
-        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
-    free(service);
-
+    AI *ailist = getaddrinfo_port(0, ListenPort, &hints);
     for (ai = ailist; ai; ai = ai->ai_next) {
         ListenFD = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (ListenFD < 0)
@@ -1269,31 +1300,23 @@ void
 client_send_request(void)
 {
     REQ req;
-    int stat;
-    char *service;
-    struct addrinfo *r;
-    struct addrinfo *res;
-    struct addrinfo hints ={
-        .ai_family      = AF_UNSPEC,
-        .ai_socktype    = SOCK_STREAM
+    AI *a;
+    AI hints ={
+        .ai_family   = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM
     };
 
-    service = qasprintf("%d", ListenPort);
-    stat = getaddrinfo(ServerName, service, &hints, &res);
-    if (stat != SUCCESS0)
-        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
-    free(service);
-
+    AI *ailist = getaddrinfo_port(ServerName, ListenPort, &hints);
     RemoteFD = -1;
     if (Wait)
         start_test_timer(Wait);
     for (;;) {
-        for (r = res; r; r = r->ai_next) {
-            RemoteFD = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
+        for (a = ailist; a; a = a->ai_next) {
+            RemoteFD = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
             if (RemoteFD >= 0) {
-                if (connect(RemoteFD, r->ai_addr, r->ai_addrlen) == SUCCESS0) {
-                    ServerAddrLen = r->ai_addrlen;
-                    memcpy(&ServerAddr, r->ai_addr, ServerAddrLen);
+                if (connect(RemoteFD, a->ai_addr, a->ai_addrlen) == SUCCESS0) {
+                    ServerAddrLen = a->ai_addrlen;
+                    memcpy(&ServerAddr, a->ai_addr, ServerAddrLen);
                     break;
                 }
                 remotefd_close();
@@ -1305,7 +1328,7 @@ client_send_request(void)
     }
     if (Wait)
         stop_test_timer();
-    freeaddrinfo(res);
+    freeaddrinfo(ailist);
     if (RemoteFD < 0)
         error(0, "failed to connect");
     remotefd_setup();

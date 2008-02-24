@@ -57,8 +57,6 @@
 static void     client_get_hosts(char *lhost, char *rhost);
 static void     connect_tcp(char *server, char *port, SS *addr,
                                                     socklen_t *len, int *fd);
-static uint32_t decode_port(uint32_t *p);
-static void     encode_port(uint32_t *p, uint32_t port);
 static void     get_socket_ip(SA *saptr, int salen, char *ip, int n);
 static int      get_socket_port(int fd);
 static int      init(void);
@@ -264,10 +262,10 @@ init(void)
         server_get_hosts(lhost, rhost);
     sockfd = rds_socket(lhost, Req.port);
     lport = get_socket_port(sockfd);
-    encode_port(&lport, lport);
+    encode_uint32(&lport, lport);
     send_mesg(&lport, sizeof(lport), "RDS port");
     recv_mesg(&rport, sizeof(rport), "RDS port");
-    rport = decode_port(&rport);
+    rport = decode_uint32(&rport);
     rds_makeaddr(&RAddr, &RLen, rhost, rport);
     return sockfd;
 }
@@ -298,7 +296,7 @@ server_get_hosts(char *lhost, char *rhost)
         error(SYS, "bind failed");
 
     port = get_socket_port(lfd);
-    encode_port(&port, port);
+    encode_uint32(&port, port);
     send_mesg(&port, sizeof(port), "TCP IPv4 server port");
 
     if (listen(lfd, 1) < 0)
@@ -330,7 +328,7 @@ client_get_hosts(char *lhost, char *rhost)
     int fd = -1;
 
     recv_mesg(&port, sizeof(port), "TCP IPv4 server port");
-    port = decode_port(&port);
+    port = decode_uint32(&port);
     service = qasprintf("%d", port);
     connect_tcp(ServerName, service, &raddr, &rlen, &fd);
     free(service);
@@ -475,26 +473,4 @@ set_socket_buffer_size(int fd)
         error(SYS, "failed to set send buffer size on socket");
     if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) < 0)
         error(SYS, "failed to set receive buffer size on socket");
-}
-
-
-/*
- * Encode a port which is stored as a 32 bit unsigned.
- */
-static void
-encode_port(uint32_t *p, uint32_t port)
-{
-    enc_init(p);
-    enc_int(port, sizeof(port));
-}
-
-
-/*
- * Decode a port which is stored as a 32 bit unsigned.
- */
-static uint32_t
-decode_port(uint32_t *p)
-{
-    dec_init(p);
-    return dec_int(sizeof(uint32_t));
 }

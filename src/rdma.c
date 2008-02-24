@@ -39,6 +39,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
 #include "qperf.h"
 
@@ -46,22 +47,22 @@
 /*
  * RDMA parameters.
  */
-#define QKEY            0x11111111      /* Q_Key */
-#define NCQE            1024            /* Number of CQ entries */
-#define GRH_SIZE        40              /* InfiniBand GRH size */
-#define MTU_SIZE        2048            /* Default MTU Size */
-#define RETRY_CNT       7               /* RC/UC retry count */
-#define RNR_RETRY       7               /* RC/UC RNR retry count */
-#define RNR_TIMER       12              /* RC/UC RNR timeout */
-#define TIMEOUT         14              /* RC/UC timeout */
+#define QKEY                0x11111111  /* Q_Key */
+#define NCQE                1024        /* Number of CQ entries */
+#define GRH_SIZE            40          /* InfiniBand GRH size */
+#define MTU_SIZE            2048        /* Default MTU Size */
+#define RETRY_CNT           7           /* RC retry count */
+#define RNR_RETRY_CNT       7           /* RC RNR retry count */
+#define MIN_RNR_TIMER       12          /* RC Minimum RNR timer */
+#define LOCAL_ACK_TIMEOUT   14          /* RC local ACK timeout */
 
 
 /*
  * Work request IDs.
  */
-#define WRID_SEND       1               /* Send */
-#define WRID_RECV       2               /* Receive */
-#define WRID_RDMA       3               /* RDMA */
+#define WRID_SEND   1                   /* Send */
+#define WRID_RECV   2                   /* Receive */
+#define WRID_RDMA   3                   /* RDMA */
 
 
 /*
@@ -78,12 +79,16 @@ typedef enum ibv_wr_opcode OPCODE;
 
 
 /*
- * Atomics.
+ * Some of the tests.
  */
-typedef enum ATOMIC {
-    FETCH_ADD,                          /* Fetch and add */
-    COMPARE_SWAP                        /* Compare and swap */
-} ATOMIC;
+typedef enum ETEST {
+    RC_COMPARE_SWAP_MR,
+    RC_FETCH_ADD_MR,
+    RC_RDMA_READ_BW,
+    RC_RDMA_READ_LAT,
+    VER_RC_COMPARE_SWAP,
+    VER_RC_FETCH_ADD,
+} ETEST;
 
 
 /*
@@ -96,38 +101,59 @@ typedef enum IOMODE {
 
 
 /*
- * RDMA connection context.
+ * Information specific to a node.
  */
-typedef struct RCON {
+typedef struct NODE {
     uint32_t    lid;                    /* Local ID */
     uint32_t    qpn;                    /* Queue pair number */
     uint32_t    psn;                    /* Packet sequence number */
     uint32_t    rkey;                   /* Remote key */
     uint64_t    vaddr;                  /* Virtual address */
-} RCON;
+} NODE;
+
+
+/*
+ * InfiniBand specific information.
+ */
+typedef struct IBINFO {
+    int                 mtu;            /* MTU */
+    int                 port;           /* Port */
+    int                 rate;           /* Static rate */
+    struct ibv_context *context;        /* Context */
+    struct ibv_device **devlist;        /* Device list */
+} IBINFO;
+
+
+/*
+ * Connection Manager specific information.
+ */
+typedef struct CMINFO {
+    struct rdma_event_channel *channel; /* Channel */
+    struct rdma_cm_id         *id;      /* RDMA id */
+    struct rdma_cm_event      *event;   /* Event */
+} CMINFO;
 
 
 /*
  * RDMA device descriptor.
  */
-typedef struct RDEV {
-    RCON                     lcon;      /* RDMA local context */
-    RCON                     rcon;      /* RDMA remote context */
-    int                      mtu;       /* MTU */
-    int                      port;      /* Port */
-    int                      rate;      /* Rate */
+typedef struct DEVICE {
+    NODE                     lnode;     /* Local node information */
+    NODE                     rnode;     /* Remote node information */
+    IBINFO                   ib;        /* InfiniBand information */
+    CMINFO                   cm;        /* Connection Manager information */
     int                      trans;     /* QP transport */
-    int                      maxinline; /* Maximum amount of inline data */
+    int                      maxSendWR; /* Maximum send work requests */
+    int                      maxRecvWR; /* Maximum receive work requests */
+    int                      maxInline; /* Maximum amount of inline data */
     char                    *buffer;    /* Buffer */
-    struct ibv_device       **devlist;  /* Device list */
-    struct ibv_context      *context;   /* Context */
     struct ibv_comp_channel *channel;   /* Channel */
     struct ibv_pd           *pd;        /* Protection domain */
     struct ibv_mr           *mr;        /* Memory region */
     struct ibv_cq           *cq;        /* Completion queue */
     struct ibv_qp           *qp;        /* QPair */
     struct ibv_ah           *ah;        /* Address handle */
-} RDEV;
+} DEVICE;
 
 
 /*
@@ -151,38 +177,47 @@ typedef struct RATES {
 /*
  * Function prototypes.
  */
+static void     cm_ack_event(DEVICE *dev);
+static void     cm_close(DEVICE *dev);
+static char    *cm_event_name(int event, char *data, int size);
+static void     cm_expect_event(DEVICE *dev, int expected);
+static void     cm_init(DEVICE *dev);
+static void     cm_open(DEVICE *dev);
+static void     cm_open_client(DEVICE *dev);
+static void     cm_open_server(DEVICE *dev);
+static void     cm_prep(DEVICE *dev);
 static void     cq_error(int status);
-static void     dec_ibcon(RCON *host);
+static void     dec_node(NODE *host);
 static void     do_error(int status, uint64_t *errors);
-static void     enc_ibcon(RCON *host);
-static void     ib_bi_bw(int transport);
-static void     ib_client_atomic(ATOMIC atomic);
-static void     ib_client_bw(int transport);
-static void     ib_client_rdma_bw(int transport, OPCODE opcode);
-static void     ib_client_rdma_read_lat(int transport);
-static void     ib_close(RDEV *rdev);
-static void     ib_debug_info(RDEV *rdev);
-static void     ib_init(RDEV *rdev);
-static void     ib_mralloc(RDEV *rdev, int size);
-static void     ib_open(RDEV *rdev, int trans, int maxSendWR, int maxRecvWR);
-static void     ib_params_atomics(void);
-static void     ib_params_msgs(long msgSize, int use_poll_mode);
-static int      ib_poll(RDEV *rdev, struct ibv_wc *wc, int nwc);
-static void     ib_post_rdma(RDEV *rdev, OPCODE opcode, int n);
-static void     ib_post_compare_swap(RDEV *rdev,
+static void     enc_node(NODE *host);
+static void     ib_client_atomic(ETEST etest);
+static void     ib_close(DEVICE *dev);
+static void     ib_open(DEVICE *dev);
+static int      ib_poll(DEVICE *dev, struct ibv_wc *wc, int nwc);
+static void     ib_post_rdma(DEVICE *dev, OPCODE opcode, int n);
+static void     ib_post_compare_swap(DEVICE *dev,
                      int wrid, int offset, uint64_t compare, uint64_t swap);
-static void     ib_post_fetch_add(RDEV *rdev,
+static void     ib_post_fetch_add(DEVICE *dev,
                                         int wrid, int offset, uint64_t add);
-static void     ib_post_recv(RDEV *rdev, int n);
-static void     ib_post_send(RDEV *rdev, int n);
-static void     ib_pp_lat(int transport, IOMODE iomode);
-static void     ib_pp_lat_loop(RDEV *rdev, IOMODE iomode);
-static void     ib_prepare(RDEV *rdev);
-static void     ib_rdma_write_poll_lat(int transport);
-static void     ib_server_def(int transport);
-static void     ib_server_nop(int transport);
+static void     ib_post_recv(DEVICE *dev, int n);
+static void     ib_post_send(DEVICE *dev, int n);
+static void     ib_prep(DEVICE *dev);
+static void     rd_bi_bw(int transport);
+static void     rd_client_bw(int transport);
+static void     rd_client_rdma_bw(int transport, OPCODE opcode);
+static void     rd_client_rdma_read_lat(int transport);
+static void     rd_close(DEVICE *dev);
+static void     rd_open(DEVICE *dev, int trans, int maxSendWR, int maxRecvWR);
+static void     rd_params(int transport, long msgSize, int poll, int atomic);
+static void     rd_pp_lat(int transport, IOMODE iomode);
+static void     rd_pp_lat_loop(DEVICE *dev, IOMODE iomode);
+static void     rd_prep(DEVICE *dev, int size);
+static void     rd_rdma_write_poll_lat(int transport);
+static void     rd_server_def(int transport);
+static void     rd_server_nop(int transport, ETEST etest);
 static int      maybe(int val, char *msg);
-static char     *opcode_name(int opcode);
+static char    *opcode_name(int opcode);
+static void     show_node_info(DEVICE *dev);
 
 
 /*
@@ -229,6 +264,27 @@ NAMES Opcodes[] ={
 
 
 /*
+ * Events from the Connection Manager.
+ */
+NAMES CMEvents[] ={
+    { RDMA_CM_EVENT_ADDR_RESOLVED,      "Address resolved"              },
+    { RDMA_CM_EVENT_ADDR_ERROR,         "Address error"                 },
+    { RDMA_CM_EVENT_ROUTE_RESOLVED,     "Route resolved"                },
+    { RDMA_CM_EVENT_ROUTE_ERROR,        "Route error"                   },
+    { RDMA_CM_EVENT_CONNECT_REQUEST,    "Connect request"               },
+    { RDMA_CM_EVENT_CONNECT_RESPONSE,   "Connect response"              },
+    { RDMA_CM_EVENT_CONNECT_ERROR,      "Connect error"                 },
+    { RDMA_CM_EVENT_UNREACHABLE,        "Event unreachable"             },
+    { RDMA_CM_EVENT_REJECTED,           "Event rejected"                },
+    { RDMA_CM_EVENT_ESTABLISHED,        "Event established"             },
+    { RDMA_CM_EVENT_DISCONNECTED,       "Event disconnected"            },
+    { RDMA_CM_EVENT_DEVICE_REMOVAL,     "Device removal"                },
+    { RDMA_CM_EVENT_MULTICAST_JOIN,     "Multicast join"                },
+    { RDMA_CM_EVENT_MULTICAST_ERROR,    "Multicast error"               },
+};
+
+
+/*
  * Opcodes.
  */
 RATES Rates[] ={
@@ -263,8 +319,8 @@ run_client_rc_bi_bw(void)
 {
     par_use(L_ACCESS_RECV);
     par_use(R_ACCESS_RECV);
-    ib_params_msgs(K64, 1);
-    ib_bi_bw(IBV_QPT_RC);
+    rd_params(IBV_QPT_RC, K64, 1, 0);
+    rd_bi_bw(IBV_QPT_RC);
     show_results(BANDWIDTH);
 }
 
@@ -275,7 +331,7 @@ run_client_rc_bi_bw(void)
 void
 run_server_rc_bi_bw(void)
 {
-    ib_bi_bw(IBV_QPT_RC);
+    rd_bi_bw(IBV_QPT_RC);
 }
 
 
@@ -289,8 +345,8 @@ run_client_rc_bw(void)
     par_use(R_ACCESS_RECV);
     par_use(L_NO_MSGS);
     par_use(R_NO_MSGS);
-    ib_params_msgs(K64, 1);
-    ib_client_bw(IBV_QPT_RC);
+    rd_params(IBV_QPT_RC, K64, 1, 0);
+    rd_client_bw(IBV_QPT_RC);
     show_results(BANDWIDTH);
 }
 
@@ -301,7 +357,7 @@ run_client_rc_bw(void)
 void
 run_server_rc_bw(void)
 {
-    ib_server_def(IBV_QPT_RC);
+    rd_server_def(IBV_QPT_RC);
 }
 
 
@@ -311,7 +367,7 @@ run_server_rc_bw(void)
 void
 run_client_rc_compare_swap_mr(void)
 {
-    ib_client_atomic(COMPARE_SWAP);
+    ib_client_atomic(RC_COMPARE_SWAP_MR);
 }
 
 
@@ -321,7 +377,7 @@ run_client_rc_compare_swap_mr(void)
 void
 run_server_rc_compare_swap_mr(void)
 {
-    ib_server_nop(IBV_QPT_RC);
+    rd_server_nop(IBV_QPT_RC, RC_COMPARE_SWAP_MR);
 }
 
 
@@ -331,7 +387,7 @@ run_server_rc_compare_swap_mr(void)
 void
 run_client_rc_fetch_add_mr(void)
 {
-    ib_client_atomic(FETCH_ADD);
+    ib_client_atomic(RC_FETCH_ADD_MR);
 }
 
 
@@ -341,7 +397,7 @@ run_client_rc_fetch_add_mr(void)
 void
 run_server_rc_fetch_add_mr(void)
 {
-    ib_server_nop(IBV_QPT_RC);
+    rd_server_nop(IBV_QPT_RC, RC_FETCH_ADD_MR);
 }
 
 
@@ -351,8 +407,8 @@ run_server_rc_fetch_add_mr(void)
 void
 run_client_rc_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_pp_lat(IBV_QPT_RC, IO_SR);
+    rd_params(IBV_QPT_RC, 1, 1, 0);
+    rd_pp_lat(IBV_QPT_RC, IO_SR);
 }
 
 
@@ -362,7 +418,7 @@ run_client_rc_lat(void)
 void
 run_server_rc_lat(void)
 {
-    ib_pp_lat(IBV_QPT_RC, IO_SR);
+    rd_pp_lat(IBV_QPT_RC, IO_SR);
 }
 
 
@@ -376,8 +432,8 @@ run_client_rc_rdma_read_bw(void)
     par_use(R_ACCESS_RECV);
     par_use(L_RD_ATOMIC);
     par_use(R_RD_ATOMIC);
-    ib_params_msgs(K64, 1);
-    ib_client_rdma_bw(IBV_QPT_RC, IBV_WR_RDMA_READ);
+    rd_params(IBV_QPT_RC, K64, 1, 0);
+    rd_client_rdma_bw(IBV_QPT_RC, IBV_WR_RDMA_READ);
     show_results(BANDWIDTH);
 }
 
@@ -388,7 +444,7 @@ run_client_rc_rdma_read_bw(void)
 void
 run_server_rc_rdma_read_bw(void)
 {
-    ib_server_nop(IBV_QPT_RC);
+    rd_server_nop(IBV_QPT_RC, RC_RDMA_READ_BW);
 }
 
 
@@ -398,8 +454,8 @@ run_server_rc_rdma_read_bw(void)
 void
 run_client_rc_rdma_read_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_client_rdma_read_lat(IBV_QPT_RC);
+    rd_params(IBV_QPT_RC, 1, 1, 0);
+    rd_client_rdma_read_lat(IBV_QPT_RC);
 }
 
 
@@ -409,7 +465,7 @@ run_client_rc_rdma_read_lat(void)
 void
 run_server_rc_rdma_read_lat(void)
 {
-    ib_server_nop(IBV_QPT_RC);
+    rd_server_nop(IBV_QPT_RC, RC_RDMA_READ_LAT);
 }
 
 
@@ -419,8 +475,8 @@ run_server_rc_rdma_read_lat(void)
 void
 run_client_rc_rdma_write_bw(void)
 {
-    ib_params_msgs(K64, 1);
-    ib_client_rdma_bw(IBV_QPT_RC, IBV_WR_RDMA_WRITE_WITH_IMM);
+    rd_params(IBV_QPT_RC, K64, 1, 0);
+    rd_client_rdma_bw(IBV_QPT_RC, IBV_WR_RDMA_WRITE_WITH_IMM);
     show_results(BANDWIDTH);
 }
 
@@ -431,7 +487,7 @@ run_client_rc_rdma_write_bw(void)
 void
 run_server_rc_rdma_write_bw(void)
 {
-    ib_server_def(IBV_QPT_RC);
+    rd_server_def(IBV_QPT_RC);
 }
 
 
@@ -441,8 +497,8 @@ run_server_rc_rdma_write_bw(void)
 void
 run_client_rc_rdma_write_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_pp_lat(IBV_QPT_RC, IO_RDMA);
+    rd_params(IBV_QPT_RC, 1, 1, 0);
+    rd_pp_lat(IBV_QPT_RC, IO_RDMA);
 }
 
 
@@ -452,7 +508,7 @@ run_client_rc_rdma_write_lat(void)
 void
 run_server_rc_rdma_write_lat(void)
 {
-    ib_pp_lat(IBV_QPT_RC, IO_RDMA);
+    rd_pp_lat(IBV_QPT_RC, IO_RDMA);
 }
 
 
@@ -462,8 +518,8 @@ run_server_rc_rdma_write_lat(void)
 void
 run_client_rc_rdma_write_poll_lat(void)
 {
-    ib_params_msgs(1, 0);
-    ib_rdma_write_poll_lat(IBV_QPT_RC);
+    rd_params(IBV_QPT_RC, 1, 0, 0);
+    rd_rdma_write_poll_lat(IBV_QPT_RC);
     show_results(LATENCY);
 }
 
@@ -474,7 +530,7 @@ run_client_rc_rdma_write_poll_lat(void)
 void
 run_server_rc_rdma_write_poll_lat(void)
 {
-    ib_rdma_write_poll_lat(IBV_QPT_RC);
+    rd_rdma_write_poll_lat(IBV_QPT_RC);
 }
 
 
@@ -486,8 +542,8 @@ run_client_uc_bi_bw(void)
 {
     par_use(L_ACCESS_RECV);
     par_use(R_ACCESS_RECV);
-    ib_params_msgs(K64, 1);
-    ib_bi_bw(IBV_QPT_UC);
+    rd_params(IBV_QPT_UC, K64, 1, 0);
+    rd_bi_bw(IBV_QPT_UC);
     show_results(BANDWIDTH_SR);
 }
 
@@ -498,7 +554,7 @@ run_client_uc_bi_bw(void)
 void
 run_server_uc_bi_bw(void)
 {
-    ib_bi_bw(IBV_QPT_UC);
+    rd_bi_bw(IBV_QPT_UC);
 }
 
 
@@ -512,8 +568,8 @@ run_client_uc_bw(void)
     par_use(R_ACCESS_RECV);
     par_use(L_NO_MSGS);
     par_use(R_NO_MSGS);
-    ib_params_msgs(K64, 1);
-    ib_client_bw(IBV_QPT_UC);
+    rd_params(IBV_QPT_UC, K64, 1, 0);
+    rd_client_bw(IBV_QPT_UC);
     show_results(BANDWIDTH_SR);
 }
 
@@ -524,7 +580,7 @@ run_client_uc_bw(void)
 void
 run_server_uc_bw(void)
 {
-    ib_server_def(IBV_QPT_UC);
+    rd_server_def(IBV_QPT_UC);
 }
 
 
@@ -534,8 +590,8 @@ run_server_uc_bw(void)
 void
 run_client_uc_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_pp_lat(IBV_QPT_UC, IO_SR);
+    rd_params(IBV_QPT_UC, 1, 1, 0);
+    rd_pp_lat(IBV_QPT_UC, IO_SR);
 }
 
 
@@ -545,7 +601,7 @@ run_client_uc_lat(void)
 void
 run_server_uc_lat(void)
 {
-    ib_pp_lat(IBV_QPT_UC, IO_SR);
+    rd_pp_lat(IBV_QPT_UC, IO_SR);
 }
 
 
@@ -555,8 +611,8 @@ run_server_uc_lat(void)
 void
 run_client_uc_rdma_write_bw(void)
 {
-    ib_params_msgs(K64, 1);
-    ib_client_rdma_bw(IBV_QPT_UC, IBV_WR_RDMA_WRITE_WITH_IMM);
+    rd_params(IBV_QPT_UC, K64, 1, 0);
+    rd_client_rdma_bw(IBV_QPT_UC, IBV_WR_RDMA_WRITE_WITH_IMM);
     show_results(BANDWIDTH_SR);
 }
 
@@ -567,7 +623,7 @@ run_client_uc_rdma_write_bw(void)
 void
 run_server_uc_rdma_write_bw(void)
 {
-    ib_server_def(IBV_QPT_UC);
+    rd_server_def(IBV_QPT_UC);
 }
 
 
@@ -577,8 +633,8 @@ run_server_uc_rdma_write_bw(void)
 void
 run_client_uc_rdma_write_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_pp_lat(IBV_QPT_UC, IO_RDMA);
+    rd_params(IBV_QPT_UC, 1, 1, 0);
+    rd_pp_lat(IBV_QPT_UC, IO_RDMA);
 }
 
 
@@ -588,7 +644,7 @@ run_client_uc_rdma_write_lat(void)
 void
 run_server_uc_rdma_write_lat(void)
 {
-    ib_pp_lat(IBV_QPT_UC, IO_RDMA);
+    rd_pp_lat(IBV_QPT_UC, IO_RDMA);
 }
 
 
@@ -598,8 +654,8 @@ run_server_uc_rdma_write_lat(void)
 void
 run_client_uc_rdma_write_poll_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_rdma_write_poll_lat(IBV_QPT_UC);
+    rd_params(IBV_QPT_UC, 1, 1, 0);
+    rd_rdma_write_poll_lat(IBV_QPT_UC);
     show_results(LATENCY);
 }
 
@@ -610,7 +666,7 @@ run_client_uc_rdma_write_poll_lat(void)
 void
 run_server_uc_rdma_write_poll_lat(void)
 {
-    ib_rdma_write_poll_lat(IBV_QPT_UC);
+    rd_rdma_write_poll_lat(IBV_QPT_UC);
 }
 
 
@@ -622,8 +678,8 @@ run_client_ud_bi_bw(void)
 {
     par_use(L_ACCESS_RECV);
     par_use(R_ACCESS_RECV);
-    ib_params_msgs(K2, 1);
-    ib_bi_bw(IBV_QPT_UD);
+    rd_params(IBV_QPT_UD, K2, 1, 0);
+    rd_bi_bw(IBV_QPT_UD);
     show_results(BANDWIDTH_SR);
 }
 
@@ -634,7 +690,7 @@ run_client_ud_bi_bw(void)
 void
 run_server_ud_bi_bw(void)
 {
-    ib_bi_bw(IBV_QPT_UD);
+    rd_bi_bw(IBV_QPT_UD);
 }
 
 
@@ -648,8 +704,8 @@ run_client_ud_bw(void)
     par_use(R_ACCESS_RECV);
     par_use(L_NO_MSGS);
     par_use(R_NO_MSGS);
-    ib_params_msgs(K2, 1);
-    ib_client_bw(IBV_QPT_UD);
+    rd_params(IBV_QPT_UD, K2, 1, 0);
+    rd_client_bw(IBV_QPT_UD);
     show_results(BANDWIDTH_SR);
 }
 
@@ -660,7 +716,7 @@ run_client_ud_bw(void)
 void
 run_server_ud_bw(void)
 {
-    ib_server_def(IBV_QPT_UD);
+    rd_server_def(IBV_QPT_UD);
 }
 
 
@@ -670,8 +726,8 @@ run_server_ud_bw(void)
 void
 run_client_ud_lat(void)
 {
-    ib_params_msgs(1, 1);
-    ib_pp_lat(IBV_QPT_UD, IO_SR);
+    rd_params(IBV_QPT_UD, 1, 1, 0);
+    rd_pp_lat(IBV_QPT_UD, IO_SR);
 }
 
 
@@ -681,7 +737,7 @@ run_client_ud_lat(void)
 void
 run_server_ud_lat(void)
 {
-    ib_pp_lat(IBV_QPT_UD, IO_SR);
+    rd_pp_lat(IBV_QPT_UD, IO_SR);
 }
 
 /*
@@ -691,30 +747,29 @@ void
 run_client_ver_rc_compare_swap(void)
 {
     int i;
-    int size;
-    RDEV rdev;
+    DEVICE dev;
+    uint32_t size;
     uint64_t *result;
     uint64_t last = 0;
     uint64_t cur = 0;
     uint64_t next = 0x0123456789abcdefULL;
 
-    ib_params_atomics();
-    ib_open(&rdev, IBV_QPT_RC, NCQE, 0);
+    rd_params(IBV_QPT_RC, 0, 1, 1);
+    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
     size = Req.rd_atomic * sizeof(uint64_t);
-    setv_u32(L_MSG_SIZE, size);
-    setv_u32(R_MSG_SIZE, size);
-    ib_mralloc(&rdev, size);
-    ib_init(&rdev);
+    encode_uint32(&size, size);
+    send_mesg(&size, sizeof(size), "Memory region size");
+    rd_prep(&dev, size);
     sync_test();
     for (i = 0; i < Req.rd_atomic; ++i) {
-        ib_post_compare_swap(&rdev, i, i*sizeof(uint64_t), cur, next);
+        ib_post_compare_swap(&dev, i, i*sizeof(uint64_t), cur, next);
         cur = next;
         next = cur + 1;
     }
-    result = (uint64_t *) rdev.buffer;
+    result = (uint64_t *) dev.buffer;
     while (!Finished) {
         struct ibv_wc wc[NCQE];
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         uint64_t res;
 
         if (Finished)
@@ -738,13 +793,13 @@ run_client_ver_rc_compare_swap(void)
             else
                     last = 0x0123456789abcdefULL;
             next = cur + 1;
-            ib_post_compare_swap(&rdev, x, x*sizeof(uint64_t), cur, next);
+            ib_post_compare_swap(&dev, x, x*sizeof(uint64_t), cur, next);
             cur = next;
         }
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
     show_results(MSG_RATE);
 }
 
@@ -755,7 +810,7 @@ run_client_ver_rc_compare_swap(void)
 void
 run_server_ver_rc_compare_swap(void)
 {
-    ib_server_nop(IBV_QPT_RC);
+    rd_server_nop(IBV_QPT_RC, VER_RC_COMPARE_SWAP);
 }
 
 
@@ -766,25 +821,24 @@ void
 run_client_ver_rc_fetch_add(void)
 {
     int i;
-    int size;
-    RDEV rdev;
+    DEVICE dev;
+    uint32_t size;
     uint64_t *result;
     uint64_t last = 0;
 
-    ib_params_atomics();
-    ib_open(&rdev, IBV_QPT_RC, NCQE, 0);
+    rd_params(IBV_QPT_RC, 0, 1, 1);
+    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
     size = Req.rd_atomic * sizeof(uint64_t);
-    setv_u32(L_MSG_SIZE, size);
-    setv_u32(R_MSG_SIZE, size);
-    ib_mralloc(&rdev, size);
-    ib_init(&rdev);
+    encode_uint32(&size, size);
+    send_mesg(&size, sizeof(size), "Memory region size");
+    rd_prep(&dev, size);
     sync_test();
     for (i = 0; i < Req.rd_atomic; ++i)
-        ib_post_fetch_add(&rdev, i, i*sizeof(uint64_t), 1);
-    result = (uint64_t *) rdev.buffer;
+        ib_post_fetch_add(&dev, i, i*sizeof(uint64_t), 1);
+    result = (uint64_t *) dev.buffer;
     while (!Finished) {
         struct ibv_wc wc[NCQE];
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         uint64_t res;
 
         if (Finished)
@@ -804,12 +858,12 @@ run_client_ver_rc_fetch_add(void)
                 error(0, "fetch and add mismatch (expected %llx vs. %llx)",
                         (long long)last, (long long)res);
             last++;
-            ib_post_fetch_add(&rdev, x, x*sizeof(uint64_t), 1);
+            ib_post_fetch_add(&dev, x, x*sizeof(uint64_t), 1);
         }
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
     show_results(MSG_RATE);
 }
 
@@ -820,59 +874,7 @@ run_client_ver_rc_fetch_add(void)
 void
 run_server_ver_rc_fetch_add(void)
 {
-    ib_server_nop(IBV_QPT_RC);
-}
-
-
-/*
- * Measure messaging rate for an atomic operation.
- */
-static void
-ib_client_atomic(ATOMIC atomic)
-{
-    int i;
-    RDEV rdev;
-
-    ib_params_atomics();
-    ib_open(&rdev, IBV_QPT_RC, NCQE, 0);
-    setv_u32(L_MSG_SIZE, sizeof(uint64_t));
-    setv_u32(R_MSG_SIZE, sizeof(uint64_t));
-    ib_mralloc(&rdev, sizeof(uint64_t));
-    ib_init(&rdev);
-    sync_test();
-
-    for (i = 0; i < Req.rd_atomic; ++i) {
-        if (atomic == FETCH_ADD)
-            ib_post_fetch_add(&rdev, 0, 0, 0);
-        else
-            ib_post_compare_swap(&rdev, 0, 0, 0, 0);
-    }
-
-    while (!Finished) {
-        struct ibv_wc wc[NCQE];
-        int n = ib_poll(&rdev, wc, cardof(wc));
-        if (Finished)
-            break;
-        if (n > LStat.max_cqes)
-            LStat.max_cqes = n;
-        for (i = 0; i < n; ++i) {
-            int status = wc[i].status;
-            if (status == IBV_WC_SUCCESS) {
-                LStat.rem_r.no_bytes += sizeof(uint64_t);
-                LStat.rem_r.no_msgs++;
-            } else
-                do_error(status, &LStat.s.no_errs);
-            if (atomic == FETCH_ADD)
-                ib_post_fetch_add(&rdev, 0, 0, 0);
-            else
-                ib_post_compare_swap(&rdev, 0, 0, 0, 0);
-        }
-    }
-
-    stop_test_timer();
-    exchange_results();
-    ib_close(&rdev);
-    show_results(MSG_RATE);
+    rd_server_nop(IBV_QPT_RC, VER_RC_FETCH_ADD);
 }
 
 
@@ -880,21 +882,21 @@ ib_client_atomic(ATOMIC atomic)
  * Measure RDMA bandwidth (client side).
  */
 static void
-ib_client_bw(int transport)
+rd_client_bw(int transport)
 {
-    RDEV rdev;
+    DEVICE dev;
 
     long sent = 0;
-    ib_open(&rdev, transport, NCQE, 0);
-    ib_init(&rdev);
+    rd_open(&dev, transport, NCQE, 0);
+    rd_prep(&dev, 0);
     sync_test();
-    ib_post_send(&rdev, left_to_send(&sent, NCQE));
+    ib_post_send(&dev, left_to_send(&sent, NCQE));
     sent = NCQE;
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
 
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         if (Finished)
@@ -912,12 +914,12 @@ ib_client_bw(int transport)
                 break;
             n = left_to_send(&sent, n);
         }
-        ib_post_send(&rdev, n);
+        ib_post_send(&dev, n);
         sent += n;
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
@@ -926,18 +928,18 @@ ib_client_bw(int transport)
  * gets a completion entry, compute statistics and post more buffers.
  */
 static void
-ib_server_def(int transport)
+rd_server_def(int transport)
 {
-    RDEV rdev;
+    DEVICE dev;
 
-    ib_open(&rdev, transport, 0, NCQE);
-    ib_init(&rdev);
-    ib_post_recv(&rdev, NCQE);
+    rd_open(&dev, transport, 0, NCQE);
+    rd_prep(&dev, 0);
+    ib_post_recv(&dev, NCQE);
     sync_test();
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         if (Finished)
             break;
         if (n > LStat.max_cqes)
@@ -948,18 +950,18 @@ ib_server_def(int transport)
                 LStat.r.no_bytes += Req.msg_size;
                 LStat.r.no_msgs++;
                 if (Req.access_recv)
-                    touch_data(rdev.buffer, Req.msg_size);
+                    touch_data(dev.buffer, Req.msg_size);
             } else
                 do_error(status, &LStat.r.no_errs);
         }
         if (Req.no_msgs)
             if (LStat.r.no_msgs + LStat.r.no_errs >= Req.no_msgs)
                 break;
-        ib_post_recv(&rdev, n);
+        ib_post_recv(&dev, n);
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
@@ -967,21 +969,21 @@ ib_server_def(int transport)
  * Measure bi-directional RDMA bandwidth.
  */
 static void
-ib_bi_bw(int transport)
+rd_bi_bw(int transport)
 {
-    RDEV rdev;
+    DEVICE dev;
 
-    ib_open(&rdev, transport, NCQE, NCQE);
-    ib_init(&rdev);
-    ib_post_recv(&rdev, NCQE);
+    rd_open(&dev, transport, NCQE, NCQE);
+    rd_prep(&dev, 0);
+    ib_post_recv(&dev, NCQE);
     sync_test();
-    ib_post_send(&rdev, NCQE);
+    ib_post_send(&dev, NCQE);
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
         int numSent = 0;
         int numRecv = 0;
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         if (Finished)
             break;
         if (n > LStat.max_cqes)
@@ -1000,7 +1002,7 @@ ib_bi_bw(int transport)
                     LStat.r.no_bytes += Req.msg_size;
                     LStat.r.no_msgs++;
                     if (Req.access_recv)
-                        touch_data(rdev.buffer, Req.msg_size);
+                        touch_data(dev.buffer, Req.msg_size);
                 } else
                     do_error(status, &LStat.r.no_errs);
                 ++numRecv;
@@ -1010,13 +1012,13 @@ ib_bi_bw(int transport)
             }
         }
         if (numRecv)
-            ib_post_recv(&rdev, numRecv);
+            ib_post_recv(&dev, numRecv);
         if (numSent)
-            ib_post_send(&rdev, numSent);
+            ib_post_send(&dev, numSent);
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
@@ -1024,16 +1026,16 @@ ib_bi_bw(int transport)
  * Measure ping-pong latency (client and server side).
  */
 static void
-ib_pp_lat(int transport, IOMODE iomode)
+rd_pp_lat(int transport, IOMODE iomode)
 {
-    RDEV rdev;
+    DEVICE dev;
 
-    ib_open(&rdev, transport, 1, 1);
-    ib_init(&rdev);
-    ib_pp_lat_loop(&rdev, iomode);
+    rd_open(&dev, transport, 1, 1);
+    rd_prep(&dev, 0);
+    rd_pp_lat_loop(&dev, iomode);
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
     if (is_client())
         show_results(LATENCY);
 }
@@ -1043,23 +1045,23 @@ ib_pp_lat(int transport, IOMODE iomode)
  * Loop sending packets back and forth to measure ping-pong latency.
  */
 static void
-ib_pp_lat_loop(RDEV *rdev, IOMODE iomode)
+rd_pp_lat_loop(DEVICE *dev, IOMODE iomode)
 {
     int done = 1;
-    ib_post_recv(rdev, 1);
+    ib_post_recv(dev, 1);
     sync_test();
     if (is_client()) {
         if (iomode == IO_SR)
-            ib_post_send(rdev, 1);
+            ib_post_send(dev, 1);
         else
-            ib_post_rdma(rdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
+            ib_post_rdma(dev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
         done = 0;
     }
 
     while (!Finished) {
         int i;
         struct ibv_wc wc[2];
-        int n = ib_poll(rdev, wc, cardof(wc));
+        int n = ib_poll(dev, wc, cardof(wc));
         if (Finished)
             break;
         for (i = 0; i < n; ++i) {
@@ -1076,7 +1078,7 @@ ib_pp_lat_loop(RDEV *rdev, IOMODE iomode)
                 if (status == IBV_WC_SUCCESS) {
                     LStat.r.no_bytes += Req.msg_size;
                     LStat.r.no_msgs++;
-                    ib_post_recv(rdev, 1);
+                    ib_post_recv(dev, 1);
                 } else
                     do_error(status, &LStat.r.no_errs);
                 done |= 2;
@@ -1089,9 +1091,9 @@ ib_pp_lat_loop(RDEV *rdev, IOMODE iomode)
         }
         if (done == 3) {
             if (iomode == IO_SR)
-                ib_post_send(rdev, 1);
+                ib_post_send(dev, 1);
             else
-                ib_post_rdma(rdev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
+                ib_post_rdma(dev, IBV_WR_RDMA_WRITE_WITH_IMM, 1);
             done = 0;
         }
     }
@@ -1104,20 +1106,20 @@ ib_pp_lat_loop(RDEV *rdev, IOMODE iomode)
  * on the PS HCA, the latency is much longer.
  */
 static void
-ib_rdma_write_poll_lat(int transport)
+rd_rdma_write_poll_lat(int transport)
 {
-    RDEV rdev;
+    DEVICE dev;
     volatile char *p;
     volatile char *q;
     int send  = is_client() ? 1 : 0;
     int locID = send;
     int remID = !locID;
 
-    ib_open(&rdev, transport, NCQE, 0);
-    ib_init(&rdev);
+    rd_open(&dev, transport, NCQE, 0);
+    rd_prep(&dev, 0);
     sync_test();
-    p = &rdev.buffer[0];
-    q = &rdev.buffer[Req.msg_size-1];
+    p = &dev.buffer[0];
+    q = &dev.buffer[Req.msg_size-1];
     while (!Finished) {
         *p = locID;
         *q = locID;
@@ -1126,10 +1128,10 @@ ib_rdma_write_poll_lat(int transport)
             int n;
             struct ibv_wc wc[2];
 
-            ib_post_rdma(&rdev, IBV_WR_RDMA_WRITE, 1);
+            ib_post_rdma(&dev, IBV_WR_RDMA_WRITE, 1);
             if (Finished)
                 break;
-            n = ibv_poll_cq(rdev.cq, cardof(wc), wc);
+            n = ibv_poll_cq(dev.cq, cardof(wc), wc);
             if (n < 0)
                 error(SYS, "CQ poll failed");
             for (i = 0; i < n; ++i) {
@@ -1150,7 +1152,7 @@ ib_rdma_write_poll_lat(int transport)
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
@@ -1158,17 +1160,17 @@ ib_rdma_write_poll_lat(int transport)
  * Measure RDMA Read latency (client side).
  */
 static void
-ib_client_rdma_read_lat(int transport)
+rd_client_rdma_read_lat(int transport)
 {
-    RDEV rdev;
+    DEVICE dev;
 
-    ib_open(&rdev, transport, 1, 0);
-    ib_init(&rdev);
+    rd_open(&dev, transport, 1, 0);
+    rd_prep(&dev, 0);
     sync_test();
-    ib_post_rdma(&rdev, IBV_WR_RDMA_READ, 1);
+    ib_post_rdma(&dev, IBV_WR_RDMA_READ, 1);
     while (!Finished) {
         struct ibv_wc wc;
-        int n = ib_poll(&rdev, &wc, 1);
+        int n = ib_poll(&dev, &wc, 1);
         if (n == 0)
             continue;
         if (Finished)
@@ -1184,11 +1186,11 @@ ib_client_rdma_read_lat(int transport)
             LStat.rem_s.no_msgs++;
         } else
             do_error(wc.status, &LStat.s.no_errs);
-        ib_post_rdma(&rdev, IBV_WR_RDMA_READ, 1);
+        ib_post_rdma(&dev, IBV_WR_RDMA_READ, 1);
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
     show_results(LATENCY);
 }
 
@@ -1197,18 +1199,18 @@ ib_client_rdma_read_lat(int transport)
  * Measure RDMA bandwidth (client side).
  */
 static void
-ib_client_rdma_bw(int transport, OPCODE opcode)
+rd_client_rdma_bw(int transport, OPCODE opcode)
 {
-    RDEV rdev;
+    DEVICE dev;
 
-    ib_open(&rdev, transport, NCQE, 0);
-    ib_init(&rdev);
+    rd_open(&dev, transport, NCQE, 0);
+    rd_prep(&dev, 0);
     sync_test();
-    ib_post_rdma(&rdev, opcode, NCQE);
+    ib_post_rdma(&dev, opcode, NCQE);
     while (!Finished) {
         int i;
         struct ibv_wc wc[NCQE];
-        int n = ib_poll(&rdev, wc, cardof(wc));
+        int n = ib_poll(&dev, wc, cardof(wc));
         if (Finished)
             break;
         if (n > LStat.max_cqes)
@@ -1222,16 +1224,16 @@ ib_client_rdma_bw(int transport, OPCODE opcode)
                     LStat.rem_s.no_bytes += Req.msg_size;
                     LStat.rem_s.no_msgs++;
                     if (Req.access_recv)
-                        touch_data(rdev.buffer, Req.msg_size);
+                        touch_data(dev.buffer, Req.msg_size);
                 }
             } else
                 do_error(status, &LStat.s.no_errs);
         }
-        ib_post_rdma(&rdev, opcode, n);
+        ib_post_rdma(&dev, opcode, n);
     }
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
@@ -1239,113 +1241,126 @@ ib_client_rdma_bw(int transport, OPCODE opcode)
  * Server just waits and lets driver take care of any requests.
  */
 static void
-ib_server_nop(int transport)
+rd_server_nop(int transport, ETEST etest)
 {
-    RDEV rdev;
+    DEVICE dev;
+    uint32_t size = 0;
 
     /* workaround: Size of RQ should be 0; bug in Mellanox driver */
-    ib_open(&rdev, transport, 0, 1);
-    ib_init(&rdev);
+    rd_open(&dev, transport, 0, 1);
+
+    /* Compute the size of the memory region */
+    if (etest == RC_COMPARE_SWAP_MR || etest == RC_FETCH_ADD_MR)
+        size = sizeof(uint64_t);
+    else if (etest == VER_RC_COMPARE_SWAP || etest == VER_RC_FETCH_ADD) {
+        recv_mesg(&size, sizeof(size), "Memory region size");
+        size = decode_uint32(&size);
+    } else if (etest == RC_RDMA_READ_BW || etest == RC_RDMA_READ_LAT)
+        size = 0;
+    else
+        error(BUG, "rd_server_nop: bad etest: %d", etest);
+
+    rd_prep(&dev, size);
     sync_test();
     while (!Finished)
         pause();
     stop_test_timer();
     exchange_results();
-    ib_close(&rdev);
+    rd_close(&dev);
 }
 
 
 /*
- * Set default RDMA parameters for tests that use messages.
+ * Measure messaging rate for an atomic operation.
  */
 static void
-ib_params_msgs(long msgSize, int use_poll_mode)
+ib_client_atomic(ETEST etest)
 {
-    setp_u32(0, L_MSG_SIZE, msgSize);
-    setp_u32(0, R_MSG_SIZE, msgSize);
-    setp_u32(0, L_MTU_SIZE, MTU_SIZE);
-    setp_u32(0, R_MTU_SIZE, MTU_SIZE);
-    par_use(L_ID);
-    par_use(R_ID);
-    par_use(L_MTU_SIZE);
-    par_use(R_MTU_SIZE);
-    par_use(L_SL);
-    par_use(R_SL);
-    par_use(L_STATIC_RATE);
-    par_use(R_STATIC_RATE);
-    if (use_poll_mode) {
+    int i;
+    DEVICE dev;
+
+    rd_params(IBV_QPT_RC, 0, 1, 1);
+    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
+    rd_prep(&dev, sizeof(uint64_t));
+    sync_test();
+
+    for (i = 0; i < Req.rd_atomic; ++i) {
+        if (etest == RC_FETCH_ADD_MR)
+            ib_post_fetch_add(&dev, 0, 0, 0);
+        else if (etest == RC_COMPARE_SWAP_MR)
+            ib_post_compare_swap(&dev, 0, 0, 0, 0);
+        else
+            error(BUG, "ib_client_atomic: bad etest: %d", etest);
+    }
+
+    while (!Finished) {
+        struct ibv_wc wc[NCQE];
+        int n = ib_poll(&dev, wc, cardof(wc));
+        if (Finished)
+            break;
+        if (n > LStat.max_cqes)
+            LStat.max_cqes = n;
+        for (i = 0; i < n; ++i) {
+            int status = wc[i].status;
+            if (status == IBV_WC_SUCCESS) {
+                LStat.rem_r.no_bytes += sizeof(uint64_t);
+                LStat.rem_r.no_msgs++;
+            } else
+                do_error(status, &LStat.s.no_errs);
+            if (etest == RC_FETCH_ADD_MR)
+                ib_post_fetch_add(&dev, 0, 0, 0);
+            else
+                ib_post_compare_swap(&dev, 0, 0, 0, 0);
+        }
+    }
+
+    stop_test_timer();
+    exchange_results();
+    rd_close(&dev);
+    show_results(MSG_RATE);
+}
+
+
+/*
+ * Set default parameters.
+ */
+static void
+rd_params(int transport, long msgSize, int poll, int atomic)
+{
+    if (transport == IBV_QPT_RC) {
+        par_use(L_USE_CM);
+        par_use(R_USE_CM);
+    } else {
+        setv_u32(L_USE_CM, 0);
+        setv_u32(R_USE_CM, 0);
+    }
+
+    if (!Req.use_cm) {
+        setp_u32(0, L_MTU_SIZE, MTU_SIZE);
+        setp_u32(0, R_MTU_SIZE, MTU_SIZE);
+        par_use(L_ID);
+        par_use(R_ID);
+        par_use(L_SL);
+        par_use(R_SL);
+        par_use(L_STATIC_RATE);
+        par_use(R_STATIC_RATE);
+    }
+
+    if (msgSize) {
+        setp_u32(0, L_MSG_SIZE, msgSize);
+        setp_u32(0, R_MSG_SIZE, msgSize);
+    }
+
+    if (poll) {
         par_use(L_POLL_MODE);
         par_use(R_POLL_MODE);
     }
-    opt_check();
-}
 
-
-/*
- * Set default RDMA parameters for tests that use atomics.
- */
-static void
-ib_params_atomics(void)
-{
-    setp_u32(0, L_MTU_SIZE, MTU_SIZE);
-    setp_u32(0, R_MTU_SIZE, MTU_SIZE);
-    par_use(L_ID);
-    par_use(R_ID);
-    par_use(L_POLL_MODE);
-    par_use(R_POLL_MODE);
-    par_use(L_RD_ATOMIC);
-    par_use(R_RD_ATOMIC);
-    par_use(L_SL);
-    par_use(R_SL);
-    par_use(L_STATIC_RATE);
-    par_use(R_STATIC_RATE);
-    opt_check();
-
-    setv_u32(L_MSG_SIZE, 0);
-}
-
-
-/*
- * RDMA initialization.
- */
-static void
-ib_init(RDEV *rdev)
-{
-    RCON ibcon;
-
-    if (is_client()) {
-        client_send_request();
-        enc_init(&ibcon);
-        enc_ibcon(&rdev->lcon);
-        send_mesg(&ibcon, sizeof(ibcon), "RDMA connection");
-        recv_mesg(&ibcon, sizeof(ibcon), "RDMA connection");
-        dec_init(&ibcon);
-        dec_ibcon(&rdev->rcon);
-    } else {
-        recv_mesg(&ibcon, sizeof(ibcon), "RDMA connection");
-        dec_init(&ibcon);
-        dec_ibcon(&rdev->rcon);
-        enc_init(&ibcon);
-        enc_ibcon(&rdev->lcon);
-        send_mesg(&ibcon, sizeof(ibcon), "RDMA connection");
+    if (atomic) {
+        par_use(L_RD_ATOMIC);
+        par_use(R_RD_ATOMIC);
     }
-    ib_prepare(rdev);
-    ib_debug_info(rdev);
-}
-
-
-/*
- * Show debugging information.
- */
-static void
-ib_debug_info(RDEV *rdev)
-{
-    debug("L: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
-                    rdev->lcon.lid, rdev->lcon.qpn, rdev->lcon.psn,
-                                    rdev->lcon.rkey, rdev->lcon.vaddr);
-    debug("R: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
-                    rdev->rcon.lid, rdev->rcon.qpn, rdev->rcon.psn,
-                                    rdev->rcon.rkey, rdev->rcon.vaddr);
+    opt_check();
 }
 
 
@@ -1353,32 +1368,432 @@ ib_debug_info(RDEV *rdev)
  * Open a RDMA device.
  */
 static void
-ib_open(RDEV *rdev, int trans, int maxSendWR, int maxRecvWR)
+rd_open(DEVICE *dev, int trans, int maxSendWR, int maxRecvWR)
 {
-    /* Clear structure */
-    memset(rdev, 0, sizeof(*rdev));
+    /* Send request to client */
+    if (is_client())
+        client_send_request();
 
-    /* Check and set MTU */
+    /* Clear structure */
+    memset(dev, 0, sizeof(*dev));
+
+    /* Set transport type and maximum work request parameters */
+    dev->trans = trans;
+    dev->maxSendWR = maxSendWR;
+    dev->maxRecvWR = maxRecvWR;
+
+    /* Open device */
+    if (Req.use_cm)
+        cm_open(dev);
+    else
+        ib_open(dev);
+
+    /* Get QP attributes */
+    {
+        struct ibv_qp_attr qp_attr;
+        struct ibv_qp_init_attr qp_init_attr;
+
+        if (ibv_query_qp(dev->qp, &qp_attr, 0, &qp_init_attr) != 0)
+            error(SYS, "query QP failed");
+        dev->maxInline = qp_attr.cap.max_inline_data;
+    }
+}
+
+
+/*
+ * Called after rd_open to prepare both ends.
+ */
+static void
+rd_prep(DEVICE *dev, int size)
+{
+    /* Allocate memory region */
+    if (size == 0)
+        size = Req.msg_size;
+    if (dev->trans == IBV_QPT_UD)
+        size += GRH_SIZE;
+    if (size == 0)
+        size = 1;
+    if (size) {
+        int pagesize = sysconf(_SC_PAGESIZE);
+        if (posix_memalign((void **)&dev->buffer, pagesize, size) != 0)
+            error(SYS, "failed to allocate memory");
+        memset(dev->buffer, 0, size);
+        int flags = IBV_ACCESS_LOCAL_WRITE  |
+                    IBV_ACCESS_REMOTE_READ  |
+                    IBV_ACCESS_REMOTE_WRITE |
+                    IBV_ACCESS_REMOTE_ATOMIC;
+        dev->mr = ibv_reg_mr(dev->pd, dev->buffer, size, flags);
+        if (!dev->mr)
+            error(SYS, "failed to allocate memory region");
+        dev->lnode.rkey  = dev->mr->rkey;
+        dev->lnode.vaddr = (unsigned long)dev->buffer;
+    }
+
+    /* Exchange node information */
+    {
+        NODE node;
+
+        enc_init(&node);
+        enc_node(&dev->lnode);
+        send_mesg(&node, sizeof(node), "node information");
+        recv_mesg(&node, sizeof(node), "node information");
+        dec_init(&node);
+        dec_node(&dev->rnode);
+    }
+
+    /* Second phase of open for devices */
+    if (Req.use_cm) 
+        cm_prep(dev);
+    else
+        ib_prep(dev);
+
+    /* Request CQ notification if not polling */
+    if (!Req.poll_mode) {
+        if (ibv_req_notify_cq(dev->cq, 0) != 0)
+            error(SYS, "failed to request CQ notification");
+    }
+
+    /* Show node information if debugging */
+    show_node_info(dev);
+}
+
+
+/*
+ * Show node information when debugging.
+ */
+static void
+show_node_info(DEVICE *dev)
+{
+    NODE *n;
+
+    if (!Debug)
+        return;
+    n = &dev->lnode;
+    if (Req.use_cm) 
+        debug("L: rkey=%08x vaddr=%010x", n->rkey, n->vaddr);
+    else
+        debug("L: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
+                                n->lid, n->qpn, n->psn, n->rkey, n->vaddr);
+    n = &dev->rnode;
+    if (Req.use_cm) 
+        debug("R: rkey=%08x vaddr=%010x", n->rkey, n->vaddr);
+    else
+        debug("R: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
+                                n->lid, n->qpn, n->psn, n->rkey, n->vaddr);
+}
+
+
+/*
+ * Close a RDMA device.  We must destroy the CQ before the QP otherwise the
+ * ibv_destroy_qp call seems to hang sometimes.
+ */
+static void
+rd_close(DEVICE *dev)
+{
+    if (dev->ah)
+        ibv_destroy_ah(dev->ah);
+    if (dev->cq)
+        ibv_destroy_cq(dev->cq);
+    if (dev->mr)
+        ibv_dereg_mr(dev->mr);
+    if (dev->pd)
+        ibv_dealloc_pd(dev->pd);
+    if (dev->channel)
+        ibv_destroy_comp_channel(dev->channel);
+    if (dev->buffer)
+        free(dev->buffer);
+
+    if (Req.use_cm)
+        cm_close(dev);
+    else
+        ib_close(dev);
+
+    memset(dev, 0, sizeof(*dev));
+}
+
+
+/*
+ * Create a queue pair.
+ */
+static void
+rd_create_qp(DEVICE *dev, struct ibv_context *context, struct rdma_cm_id *id)
+{
+    /* Set up and verify rd_atomic parameters */
+    {
+        struct ibv_device_attr dev_attr;
+
+        if (ibv_query_device(context, &dev_attr) != 0)
+            error(SYS, "query device failed");
+        if (Req.rd_atomic == 0)
+            Req.rd_atomic = dev_attr.max_qp_rd_atom;
+        else if (Req.rd_atomic > dev_attr.max_qp_rd_atom)
+            error(0, "device only supports %d (< %d) RDMA reads or atomic ops",
+                                    dev_attr.max_qp_rd_atom, Req.rd_atomic);
+    }
+
+    /* Allocate completion channel */
+    dev->channel = ibv_create_comp_channel(context);
+    if (!dev->channel)
+        error(SYS, "failed to create completion channel");
+
+    /* Allocate protection domain */
+    dev->pd = ibv_alloc_pd(context);
+    if (!dev->pd)
+        error(SYS, "failed to allocate protection domain");
+
+    /* Create completion queue */
+    dev->cq = ibv_create_cq(context,
+                            dev->maxSendWR+dev->maxRecvWR, 0, dev->channel, 0);
+    if (!dev->cq)
+        error(SYS, "failed to create completion queue");
+
+    /* Create queue pair */
+    {
+        struct ibv_qp_init_attr attr ={
+            .send_cq = dev->cq,
+            .recv_cq = dev->cq,
+            .cap     ={
+                .max_send_wr     = dev->maxSendWR,
+                .max_recv_wr     = dev->maxRecvWR,
+                .max_send_sge    = 1,
+                .max_recv_sge    = 1,
+                .max_inline_data = 0
+            },
+            .qp_type = dev->trans
+        };
+
+        if (Req.use_cm) {
+            if (rdma_create_qp(id, dev->pd, &attr) != 0)
+                error(0, "failed to create QP");
+            dev->qp = id->qp;
+        } else {
+            dev->qp = ibv_create_qp(dev->pd, &attr);
+            if (!dev->qp)
+                error(SYS, "failed to create QP");
+        }
+    }
+}
+
+
+/*
+ * Open a device using the Connection Manager.
+ */
+static void
+cm_open(DEVICE *dev)
+{
+    cm_init(dev);
+    if (is_client())
+        cm_open_client(dev);
+    else
+        cm_open_server(dev);
+}
+
+
+/*
+ * Open a channel to report communication events and allocate a communication
+ * id.
+ */
+static void
+cm_init(DEVICE *dev)
+{
+    CMINFO *cm = &dev->cm;
+
+    cm->channel = rdma_create_event_channel();
+    if (!cm->channel)
+        error(0, "rdma_create_event_channel failed");
+    if (rdma_create_id(cm->channel, &cm->id, 0, RDMA_PS_TCP) != 0)
+        error(0, "rdma_create_id failed");
+}
+
+
+/*
+ * Open a device using the Connection Manager when we are the client.
+ */
+static void
+cm_open_client(DEVICE *dev)
+{
+    AI *aip;
+    uint32_t port;
+    struct addrinfo hints ={
+        .ai_family   = AF_INET,
+        .ai_socktype = SOCK_STREAM
+    };
+    struct rdma_conn_param param ={
+        .responder_resources = 1,
+        .initiator_depth     = 1,
+        .rnr_retry_count     = RNR_RETRY_CNT,
+        .retry_count         = RETRY_CNT
+    };
+    int timeout = Req.timeout * 1000;
+    CMINFO *cm = &dev->cm;
+
+    recv_mesg(&port, sizeof(port), "RDMA CM TCP IPv4 server port");
+    port = decode_uint32(&port);
+    aip = getaddrinfo_port(ServerName, port, &hints);
+    cm_init(dev);
+
+    if (rdma_resolve_addr(cm->id, 0, (SA *)aip->ai_addr, timeout) != 0)
+        error(0, "rdma_resolve_addr failed");
+    freeaddrinfo(aip);
+    cm_expect_event(dev, RDMA_CM_EVENT_ADDR_RESOLVED);
+    cm_ack_event(dev);
+
+    if (rdma_resolve_route(cm->id, timeout) != 0)
+        error(0, "rdma_resolve_route failed");
+    cm_expect_event(dev, RDMA_CM_EVENT_ROUTE_RESOLVED);
+    cm_ack_event(dev);
+
+    rd_create_qp(dev, cm->id->verbs, cm->id);
+    if (rdma_connect(cm->id, &param) != 0)
+        error(0, "rdma_connect failed");
+    cm_expect_event(dev, RDMA_CM_EVENT_ESTABLISHED);
+    cm_ack_event(dev);
+}
+
+
+/*
+ * Open a device using the Connection Manager when we are the client.
+ */
+static void
+cm_open_server(DEVICE *dev)
+{
+    uint32_t port;
+    struct sockaddr_in saddr ={
+        .sin_family      = AF_INET,
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+        .sin_port        = htons(0)
+    };
+    struct rdma_conn_param param ={
+        .responder_resources = 1,
+        .initiator_depth     = 1,
+        .rnr_retry_count     = RNR_RETRY_CNT,
+        .retry_count         = RETRY_CNT
+    };
+    CMINFO *cm = &dev->cm;
+
+    if (rdma_bind_addr(cm->id, (SA *)&saddr) != 0)
+        error(0, "rdma_bind_addr failed");
+    port = ntohs(rdma_get_src_port(cm->id));
+    encode_uint32(&port, port);
+    send_mesg(&port, sizeof(port), "RDMA CM TCP IPv4 server port");
+
+    if (rdma_listen(cm->id, 0) != 0)
+        error(0, "rdma_listen failed");
+    cm_expect_event(dev, RDMA_CM_EVENT_CONNECT_REQUEST);
+    rd_create_qp(dev, cm->event->id->verbs, cm->event->id);
+
+    if (rdma_accept(cm->event->id, &param) != 0)
+        error(0, "rdma_accept failed");
+    cm_ack_event(dev);
+    cm_expect_event(dev, RDMA_CM_EVENT_ESTABLISHED);
+    cm_ack_event(dev);
+}
+
+
+/*
+ * Prepare a device using the Connection Manager.  Final stage of open.
+ */
+static void
+cm_prep(DEVICE *dev)
+{
+    struct ibv_qp_attr rtr_attr ={
+        .min_rnr_timer = MIN_RNR_TIMER,
+    };
+
+    /* Do not complain if error as we might be on a iWARP device */
+    if (dev->trans == IBV_QPT_RC)
+        ibv_modify_qp(dev->qp, &rtr_attr, IBV_QP_MIN_RNR_TIMER);
+}
+
+
+/*
+ * Close a device using the Connection Manager.
+ */
+static void
+cm_close(DEVICE *dev)
+{
+    if (is_client())
+        if (rdma_disconnect(dev->cm.id) != 0)
+            error(SYS, "rdma_disconnect failed");
+    cm_expect_event(dev, RDMA_CM_EVENT_DISCONNECTED);
+    cm_ack_event(dev);
+    rdma_destroy_id(dev->cm.id);
+    rdma_destroy_event_channel(dev->cm.channel);
+}
+
+
+/*
+ * Get an event from the Communication Manager.  If it is not what we expect,
+ * complain.
+ */
+static void
+cm_expect_event(DEVICE *dev, int expected)
+{
+    char msg1[64];
+    char msg2[64];
+    CMINFO *cm = &dev->cm;
+
+    if (rdma_get_cm_event(cm->channel, &cm->event) != 0)
+        error(0, "failed to receive event from RDMA CM channel");
+    if (cm->event->event != expected) {
+        error(0, "unexpected event from RDMA CM: %s\n    expecting: %s",
+                        cm_event_name(cm->event->event, msg1, sizeof(msg1)),
+                        cm_event_name(expected, msg2, sizeof(msg2)));
+    }
+}
+
+
+/*
+ * Return a name given a RDMA CM event number.
+ */
+static char *
+cm_event_name(int event, char *data, int size)
+{
+    int i;
+
+    for (i = 0; i < cardof(CMEvents); ++i)
+        if (event == CMEvents[i].value)
+            return CMEvents[i].name;
+    snprintf(data, size, "%d", event);
+    return data;
+}
+
+
+/*
+ * Acknowledge and free a communication event.
+ */
+static void
+cm_ack_event(DEVICE *dev)
+{
+    if (rdma_ack_cm_event(dev->cm.event) != 0)
+        error(0, "rdma_ack_cm_event failed");
+}
+
+
+/*
+ * Open an InfiniBand device.
+ */
+static void
+ib_open(DEVICE *dev)
+{
+    /* Determine MTU */
     {
         int mtu = Req.mtu_size;
         if (mtu == 256)
-            rdev->mtu = IBV_MTU_256;
+            dev->ib.mtu = IBV_MTU_256;
         else if (mtu == 512)
-            rdev->mtu = IBV_MTU_512;
+            dev->ib.mtu = IBV_MTU_512;
         else if (mtu == 1024)
-            rdev->mtu = IBV_MTU_1024;
+            dev->ib.mtu = IBV_MTU_1024;
         else if (mtu == 2048)
-            rdev->mtu = IBV_MTU_2048;
+            dev->ib.mtu = IBV_MTU_2048;
         else if (mtu == 4096)
-            rdev->mtu = IBV_MTU_4096;
+            dev->ib.mtu = IBV_MTU_4096;
         else
             error(0, "bad MTU: %d; must be 256/512/1K/2K/4K", mtu);
     }
 
-    /* Set transport type */
-    rdev->trans = trans;
-
-    /* Set port */
+    /* Determine port */
     {
         int port = 1;
         char *p = index(Req.id, ':');
@@ -1388,10 +1803,10 @@ ib_open(RDEV *rdev, int trans, int maxSendWR, int maxRecvWR)
             if (port < 1)
                 error(0, "bad IB port: %d; must be at least 1", port);
         }
-        rdev->port = port;
+        dev->ib.port = port;
     }
 
-    /* Set rate */
+    /* Determine static rate */
     {
         RATES *q = Rates;
         RATES *r = q + cardof(Rates);
@@ -1400,241 +1815,136 @@ ib_open(RDEV *rdev, int trans, int maxSendWR, int maxRecvWR)
             if (q >= r)
                 error(SYS, "bad static rate: %s", Req.static_rate);
             if (streq(Req.static_rate, q->name)) {
-                rdev->rate = q->rate;
+                dev->ib.rate = q->rate;
                 break;
             }
         }
     }
 
-    /* Determine device and open */
+    /* Open device */
     {
         struct ibv_device *device;
         char *name = Req.id[0] ? Req.id : 0;
 
-        rdev->devlist = ibv_get_device_list(0);
-        if (!rdev->devlist)
-            error(SYS, "failed to find any RDMA devices");
+        dev->ib.devlist = ibv_get_device_list(0);
+        if (!dev->ib.devlist)
+            error(SYS, "failed to find any InfiniBand devices");
         if (!name)
-            device = *rdev->devlist;
+            device = *dev->ib.devlist;
         else {
-            struct ibv_device **d = rdev->devlist;
+            struct ibv_device **d = dev->ib.devlist;
             while ((device = *d++))
                 if (streq(ibv_get_device_name(device), name))
                     break;
         }
         if (!device)
-            error(SYS, "failed to find RDMA device");
-        rdev->context = ibv_open_device(device);
-        if (!rdev->context)
-            error(SYS, "failed to open device %s", ibv_get_device_name(device));
+            error(SYS, "failed to find InfiniBand device");
+        dev->ib.context = ibv_open_device(device);
+        if (!dev->ib.context) {
+            const char *s = ibv_get_device_name(device);
+            error(SYS, "failed to open device %s", s);
+        }
     }
 
-    /* Allocate completion channel */
-    rdev->channel = ibv_create_comp_channel(rdev->context);
-    if (!rdev->channel)
-        error(SYS, "failed to create completion channel");
-
-    /* Allocate protection domain */
-    rdev->pd = ibv_alloc_pd(rdev->context);
-    if (!rdev->pd)
-        error(SYS, "failed to allocate protection domain");
-
-    /* Allocate message buffer and memory region */
+    /* Set up local node LID */
     {
-        int bufSize = Req.msg_size;
-        int pageSize = sysconf(_SC_PAGESIZE);
-        if (trans == IBV_QPT_UD)
-            bufSize += GRH_SIZE;
-        if (bufSize == 0)
-            bufSize = 1;
-        if (posix_memalign((void **)&rdev->buffer, pageSize, bufSize) != 0)
-            error(SYS, "failed to allocate memory");
-        memset(rdev->buffer, 0, bufSize);
-        int flags = IBV_ACCESS_LOCAL_WRITE  |
-                    IBV_ACCESS_REMOTE_READ  |
-                    IBV_ACCESS_REMOTE_WRITE |
-                    IBV_ACCESS_REMOTE_ATOMIC;
-        rdev->mr = ibv_reg_mr(rdev->pd, rdev->buffer, bufSize, flags);
-        if (!rdev->mr)
-            error(SYS, "failed to allocate memory region");
+        struct ibv_port_attr port_attr;
+
+        int stat = ibv_query_port(dev->ib.context, dev->ib.port, &port_attr);
+        if (stat != 0)
+            error(SYS, "query port failed");
+        srand48(getpid()*time(0));
+        dev->lnode.lid = port_attr.lid;
     }
 
-    /* Create completion queue */
-    rdev->cq = ibv_create_cq(rdev->context,
-                              maxSendWR+maxRecvWR, 0, rdev->channel, 0);
-    if (!rdev->cq)
-        error(SYS, "failed to create completion queue");
-
-    /* Create queue pair */
-    {
-        struct ibv_qp_init_attr attr ={
-            .send_cq = rdev->cq,
-            .recv_cq = rdev->cq,
-            .cap     ={
-                .max_send_wr        = maxSendWR,
-                .max_recv_wr        = maxRecvWR,
-                .max_send_sge       = 1,
-                .max_recv_sge       = 1,
-                .max_inline_data    = 0,
-            },
-            .qp_type = rdev->trans,
-        };
-        rdev->qp = ibv_create_qp(rdev->pd, &attr);
-        if (!rdev->qp)
-            error(SYS, "failed to create QP");
-    }
+    /* Create QP */
+    rd_create_qp(dev, dev->ib.context, 0);
 
     /* Modify queue pair to INIT state */
     {
         struct ibv_qp_attr attr ={
             .qp_state       = IBV_QPS_INIT,
             .pkey_index     = 0,
-            .port_num       = rdev->port
+            .port_num       = dev->ib.port
         };
         int flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT;
 
-        if (rdev->trans == IBV_QPT_UD) {
+        if (dev->trans == IBV_QPT_UD) {
             flags |= IBV_QP_QKEY;
             attr.qkey = QKEY;
-        } else if (rdev->trans == IBV_QPT_RC) {
+        } else if (dev->trans == IBV_QPT_RC) {
             flags |= IBV_QP_ACCESS_FLAGS;
             attr.qp_access_flags =
                 IBV_ACCESS_REMOTE_READ  |
                 IBV_ACCESS_REMOTE_WRITE |
                 IBV_ACCESS_REMOTE_ATOMIC;
-        } else if (rdev->trans == IBV_QPT_UC) {
+        } else if (dev->trans == IBV_QPT_UC) {
             flags |= IBV_QP_ACCESS_FLAGS;
             attr.qp_access_flags = IBV_ACCESS_REMOTE_WRITE;
         }
-        if (ibv_modify_qp(rdev->qp, &attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &attr, flags) != 0)
             error(SYS, "failed to modify QP to INIT state");
     }
 
-    /* Get QP attributes */
-    {
-        struct ibv_qp_attr qp_attr;
-        struct ibv_qp_init_attr qp_init_attr;
-
-        if (ibv_query_qp(rdev->qp, &qp_attr, 0, &qp_init_attr) != SUCCESS0)
-            error(SYS, "query QP failed");
-        rdev->maxinline = qp_attr.cap.max_inline_data;
-    }
-
-    /* Get device properties */
-    {
-        struct ibv_device_attr dev_attr;
-
-        if (ibv_query_device(rdev->context, &dev_attr) != SUCCESS0)
-            error(SYS, "query device failed");
-        if (Req.rd_atomic == 0)
-            Req.rd_atomic = dev_attr.max_qp_rd_atom;
-        else if (Req.rd_atomic > dev_attr.max_qp_rd_atom)
-            error(0, "device only supports %d (< %d) RDMA reads or atomic ops",
-                                    dev_attr.max_qp_rd_atom, Req.rd_atomic);
-    }
-
-    /* Set up local context */
-    {
-        struct ibv_port_attr port_attr;
-
-        int stat = ibv_query_port(rdev->context, rdev->port, &port_attr);
-        if (stat != SUCCESS0)
-            error(SYS, "query port failed");
-        srand48(getpid()*time(0));
-
-        rdev->lcon.lid   = port_attr.lid;
-        rdev->lcon.qpn   = rdev->qp->qp_num;
-        rdev->lcon.psn   = lrand48() & 0xffffff;
-        rdev->lcon.rkey  = 0;
-        rdev->lcon.vaddr = 0;
-    }
-
-    /* Allocate memory region */
-    ib_mralloc(rdev, Req.msg_size);
+    /* Set up local node QP number and PSN */
+    dev->lnode.qpn = dev->qp->qp_num;
+    dev->lnode.psn = lrand48() & 0xffffff;
 }
 
 
 /*
- * Allocate a memory region.
+ * Prepare the InfiniBand device for receiving and sending.  Final stage of
+ * open.
  */
 static void
-ib_mralloc(RDEV *rdev, int size)
-{
-    int pageSize;
-
-    if (size == 0)
-        return;
-    if (rdev->trans == IBV_QPT_UD)
-        size += GRH_SIZE;
-    pageSize = sysconf(_SC_PAGESIZE);
-    if (posix_memalign((void **)&rdev->buffer, pageSize, size) != 0)
-        error(SYS, "failed to allocate memory");
-    memset(rdev->buffer, 0, size);
-    int flags = IBV_ACCESS_LOCAL_WRITE  |
-                IBV_ACCESS_REMOTE_READ  |
-                IBV_ACCESS_REMOTE_WRITE |
-                IBV_ACCESS_REMOTE_ATOMIC;
-    rdev->mr = ibv_reg_mr(rdev->pd, rdev->buffer, size, flags);
-    if (!rdev->mr)
-        error(SYS, "failed to allocate memory region");
-
-    rdev->lcon.rkey  = rdev->mr->rkey;
-    rdev->lcon.vaddr = (unsigned long)rdev->buffer;
-}
-
-
-/*
- * Prepare the RDMA device for receiving and sending.
- */
-static void
-ib_prepare(RDEV *rdev)
+ib_prep(DEVICE *dev)
 {
     int flags;
     struct ibv_qp_attr rtr_attr ={
         .qp_state           = IBV_QPS_RTR,
-        .path_mtu           = rdev->mtu,
-        .dest_qp_num        = rdev->rcon.qpn,
-        .rq_psn             = rdev->rcon.psn,
-        .min_rnr_timer      = RNR_TIMER,
+        .path_mtu           = dev->ib.mtu,
+        .dest_qp_num        = dev->rnode.qpn,
+        .rq_psn             = dev->rnode.psn,
+        .min_rnr_timer      = MIN_RNR_TIMER,
         .max_dest_rd_atomic = Req.rd_atomic,
         .ah_attr            = {
-            .dlid           = rdev->rcon.lid,
-            .port_num       = rdev->port,
-            .static_rate    = rdev->rate,
+            .dlid           = dev->rnode.lid,
+            .port_num       = dev->ib.port,
+            .static_rate    = dev->ib.rate,
             .sl             = Req.sl
         }
     };
     struct ibv_qp_attr rts_attr ={
         .qp_state       = IBV_QPS_RTS,
-        .timeout        = TIMEOUT,
+        .timeout        = LOCAL_ACK_TIMEOUT,
         .retry_cnt      = RETRY_CNT,
-        .rnr_retry      = RNR_RETRY,
-        .sq_psn         = rdev->lcon.psn,
+        .rnr_retry      = RNR_RETRY_CNT,
+        .sq_psn         = dev->lnode.psn,
         .max_rd_atomic  = Req.rd_atomic
     };
     struct ibv_ah_attr ah_attr ={
-        .dlid           = rdev->rcon.lid,
-        .port_num       = rdev->port,
-        .static_rate    = rdev->rate,
+        .dlid           = dev->rnode.lid,
+        .port_num       = dev->ib.port,
+        .static_rate    = dev->ib.rate,
         .sl             = Req.sl
     };
 
-    if (rdev->trans == IBV_QPT_UD) {
+    if (dev->trans == IBV_QPT_UD) {
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE;
-        if (ibv_modify_qp(rdev->qp, &rtr_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rtr_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
         flags = IBV_QP_STATE | IBV_QP_SQ_PSN;
-        if (ibv_modify_qp(rdev->qp, &rts_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rts_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTS");
 
         /* Create address handle */
-        rdev->ah = ibv_create_ah(rdev->pd, &ah_attr);
-        if (!rdev->ah)
+        dev->ah = ibv_create_ah(dev->pd, &ah_attr);
+        if (!dev->ah)
             error(SYS, "failed to create address handle");
-    } else if (rdev->trans == IBV_QPT_RC) {
+    } else if (dev->trans == IBV_QPT_RC) {
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE              |
                 IBV_QP_AV                 |
@@ -1643,7 +1953,7 @@ ib_prepare(RDEV *rdev)
                 IBV_QP_RQ_PSN             |
                 IBV_QP_MAX_DEST_RD_ATOMIC |
                 IBV_QP_MIN_RNR_TIMER;
-        if (ibv_modify_qp(rdev->qp, &rtr_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rtr_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
@@ -1653,57 +1963,39 @@ ib_prepare(RDEV *rdev)
                 IBV_QP_RNR_RETRY |
                 IBV_QP_SQ_PSN    |
                 IBV_QP_MAX_QP_RD_ATOMIC;
-        if (ibv_modify_qp(rdev->qp, &rts_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rts_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTS");
-    } else if (rdev->trans == IBV_QPT_UC) {
+    } else if (dev->trans == IBV_QPT_UC) {
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE    |
                 IBV_QP_AV       |
                 IBV_QP_PATH_MTU |
                 IBV_QP_DEST_QPN |
                 IBV_QP_RQ_PSN;
-        if (ibv_modify_qp(rdev->qp, &rtr_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rtr_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTR");
 
         /* Modify queue pair to RTS */
         flags = IBV_QP_STATE |
                 IBV_QP_SQ_PSN;
-        if (ibv_modify_qp(rdev->qp, &rts_attr, flags) != SUCCESS0)
+        if (ibv_modify_qp(dev->qp, &rts_attr, flags) != 0)
             error(SYS, "failed to modify QP to RTS");
-    }
-    if (!Req.poll_mode) {
-        if (ibv_req_notify_cq(rdev->cq, 0) != SUCCESS0)
-            error(SYS, "failed to request CQ notification");
     }
 }
 
 
 /*
- * Close a RDMA device.  We ust destroy the CQ before the QP otherwise the
- * ibv_destroy_qp call might hang.
+ * Close an InfiniBand device.
  */
 static void
-ib_close(RDEV *rdev)
+ib_close(DEVICE *dev)
 {
-    if (rdev->ah)
-        ibv_destroy_ah(rdev->ah);
-    if (rdev->cq)
-        ibv_destroy_cq(rdev->cq);
-    if (rdev->qp)
-        ibv_destroy_qp(rdev->qp);
-    if (rdev->mr)
-        ibv_dereg_mr(rdev->mr);
-    if (rdev->pd)
-        ibv_dealloc_pd(rdev->pd);
-    if (rdev->channel)
-        ibv_destroy_comp_channel(rdev->channel);
-    if (rdev->context)
-        ibv_close_device(rdev->context);
-    if (rdev->buffer)
-        free(rdev->buffer);
-    if (rdev->devlist)
-        free(rdev->devlist);
-    memset(rdev, 0, sizeof(*rdev));
+    if (dev->qp)
+        ibv_destroy_qp(dev->qp);
+    if (dev->ib.context)
+        ibv_close_device(dev->ib.context);
+    if (dev->ib.devlist)
+        free(dev->ib.devlist);
 }
 
 
@@ -1711,13 +2003,13 @@ ib_close(RDEV *rdev)
  * Post a compare and swap request.
  */
 static void
-ib_post_compare_swap(RDEV *rdev,
+ib_post_compare_swap(DEVICE *dev,
                      int wrid, int offset, uint64_t compare, uint64_t swap)
 {
     struct ibv_sge sge ={
-        .addr   = (uintptr_t)rdev->buffer + offset,
+        .addr   = (uintptr_t)dev->buffer + offset,
         .length = sizeof(uint64_t),
-        .lkey   = rdev->mr->lkey
+        .lkey   = dev->mr->lkey
     };
     struct ibv_send_wr wr ={
         .wr_id      = wrid,
@@ -1727,8 +2019,8 @@ ib_post_compare_swap(RDEV *rdev,
         .send_flags = IBV_SEND_SIGNALED,
         .wr = {
             .atomic = {
-                .remote_addr    = rdev->rcon.vaddr,
-                .rkey           = rdev->rcon.rkey,
+                .remote_addr    = dev->rnode.vaddr,
+                .rkey           = dev->rnode.rkey,
                 .compare_add    = compare,
                 .swap           = swap
             }
@@ -1737,7 +2029,7 @@ ib_post_compare_swap(RDEV *rdev,
     struct ibv_send_wr *badWR;
 
     errno = 0;
-    if (ibv_post_send(rdev->qp, &wr, &badWR) != SUCCESS0) {
+    if (ibv_post_send(dev->qp, &wr, &badWR) != SUCCESS0) {
         if (Finished && errno == EINTR)
             return;
         error(SYS, "failed to post compare and swap");
@@ -1752,12 +2044,12 @@ ib_post_compare_swap(RDEV *rdev,
  * Post a fetch and add request.
  */
 static void
-ib_post_fetch_add(RDEV *rdev, int wrid, int offset, uint64_t add)
+ib_post_fetch_add(DEVICE *dev, int wrid, int offset, uint64_t add)
 {
     struct ibv_sge sge ={
-        .addr   = (uintptr_t) rdev->buffer + offset,
+        .addr   = (uintptr_t) dev->buffer + offset,
         .length = sizeof(uint64_t),
-        .lkey   = rdev->mr->lkey
+        .lkey   = dev->mr->lkey
     };
     struct ibv_send_wr wr ={
         .wr_id      = wrid,
@@ -1767,8 +2059,8 @@ ib_post_fetch_add(RDEV *rdev, int wrid, int offset, uint64_t add)
         .send_flags = IBV_SEND_SIGNALED,
         .wr = {
             .atomic = {
-                .remote_addr    = rdev->rcon.vaddr,
-                .rkey           = rdev->rcon.rkey,
+                .remote_addr    = dev->rnode.vaddr,
+                .rkey           = dev->rnode.rkey,
                 .compare_add    = add
             }
         }
@@ -1776,7 +2068,7 @@ ib_post_fetch_add(RDEV *rdev, int wrid, int offset, uint64_t add)
     struct ibv_send_wr *badWR;
 
     errno = 0;
-    if (ibv_post_send(rdev->qp, &wr, &badWR) != SUCCESS0) {
+    if (ibv_post_send(dev->qp, &wr, &badWR) != SUCCESS0) {
         if (Finished && errno == EINTR)
             return;
         error(SYS, "failed to post fetch and add");
@@ -1791,12 +2083,12 @@ ib_post_fetch_add(RDEV *rdev, int wrid, int offset, uint64_t add)
  * Post n sends.
  */
 static void
-ib_post_send(RDEV *rdev, int n)
+ib_post_send(DEVICE *dev, int n)
 {
     struct ibv_sge sge ={
-        .addr   = (uintptr_t) rdev->buffer,
+        .addr   = (uintptr_t) dev->buffer,
         .length = Req.msg_size,
-        .lkey   = rdev->mr->lkey
+        .lkey   = dev->mr->lkey
     };
     struct ibv_send_wr wr ={
         .wr_id      = WRID_SEND,
@@ -1807,16 +2099,16 @@ ib_post_send(RDEV *rdev, int n)
     };
     struct ibv_send_wr *badWR;
 
-    if (rdev->trans == IBV_QPT_UD) {
-        wr.wr.ud.ah          = rdev->ah;
-        wr.wr.ud.remote_qpn  = rdev->rcon.qpn;
+    if (dev->trans == IBV_QPT_UD) {
+        wr.wr.ud.ah          = dev->ah;
+        wr.wr.ud.remote_qpn  = dev->rnode.qpn;
         wr.wr.ud.remote_qkey = QKEY;
     }
-    if (Req.msg_size <= rdev->maxinline)
+    if (Req.msg_size <= dev->maxInline)
         wr.send_flags |= IBV_SEND_INLINE;
     errno = 0;
     while (n-- > 0) {
-        if (ibv_post_send(rdev->qp, &wr, &badWR) != SUCCESS0) {
+        if (ibv_post_send(dev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
                 return;
             error(SYS, "failed to post send");
@@ -1831,12 +2123,12 @@ ib_post_send(RDEV *rdev, int n)
  * Post n receives.
  */
 static void
-ib_post_recv(RDEV *rdev, int n)
+ib_post_recv(DEVICE *dev, int n)
 {
     struct ibv_sge sge ={
-        .addr   = (uintptr_t) rdev->buffer,
+        .addr   = (uintptr_t) dev->buffer,
         .length = Req.msg_size,
-        .lkey   = rdev->mr->lkey
+        .lkey   = dev->mr->lkey
     };
     struct ibv_recv_wr wr ={
         .wr_id      = WRID_RECV,
@@ -1845,12 +2137,12 @@ ib_post_recv(RDEV *rdev, int n)
     };
     struct ibv_recv_wr *badWR;
 
-    if (rdev->trans == IBV_QPT_UD)
+    if (dev->trans == IBV_QPT_UD)
         sge.length += GRH_SIZE;
 
     errno = 0;
     while (n-- > 0) {
-        if (ibv_post_recv(rdev->qp, &wr, &badWR) != SUCCESS0) {
+        if (ibv_post_recv(dev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
                 return;
             error(SYS, "failed to post receive");
@@ -1863,12 +2155,12 @@ ib_post_recv(RDEV *rdev, int n)
  * Post n RDMA requests.
  */
 static void
-ib_post_rdma(RDEV *rdev, OPCODE opcode, int n)
+ib_post_rdma(DEVICE *dev, OPCODE opcode, int n)
 {
     struct ibv_sge sge ={
-        .addr   = (uintptr_t) rdev->buffer,
+        .addr   = (uintptr_t) dev->buffer,
         .length = Req.msg_size,
-        .lkey   = rdev->mr->lkey
+        .lkey   = dev->mr->lkey
     };
     struct ibv_send_wr wr ={
         .wr_id      = WRID_RDMA,
@@ -1878,18 +2170,18 @@ ib_post_rdma(RDEV *rdev, OPCODE opcode, int n)
         .send_flags = IBV_SEND_SIGNALED,
         .wr = {
             .rdma = {
-                .remote_addr = rdev->rcon.vaddr,
-                .rkey        = rdev->rcon.rkey
+                .remote_addr = dev->rnode.vaddr,
+                .rkey        = dev->rnode.rkey
             }
         }
     };
     struct ibv_send_wr *badWR;
 
-    if (opcode != IBV_WR_RDMA_READ && Req.msg_size <= rdev->maxinline)
+    if (opcode != IBV_WR_RDMA_READ && Req.msg_size <= dev->maxInline)
         wr.send_flags |= IBV_SEND_INLINE;
     errno = 0;
     while (n--) {
-        if (ibv_post_send(rdev->qp, &wr, &badWR) != SUCCESS0) {
+        if (ibv_post_send(dev->qp, &wr, &badWR) != SUCCESS0) {
             if (Finished && errno == EINTR)
                 return;
             error(SYS, "failed to post %s", opcode_name(wr.opcode));
@@ -1906,7 +2198,7 @@ ib_post_rdma(RDEV *rdev, OPCODE opcode, int n)
  * Poll the completion queue.
  */
 static int
-ib_poll(RDEV *rdev, struct ibv_wc *wc, int nwc)
+ib_poll(DEVICE *dev, struct ibv_wc *wc, int nwc)
 {
     int n;
 
@@ -1914,14 +2206,14 @@ ib_poll(RDEV *rdev, struct ibv_wc *wc, int nwc)
         void *ectx;
         struct ibv_cq *ecq;
 
-        if (ibv_get_cq_event(rdev->channel, &ecq, &ectx) != SUCCESS0)
+        if (ibv_get_cq_event(dev->channel, &ecq, &ectx) != SUCCESS0)
             return maybe(0, "failed to get CQ event");
-        if (ecq != rdev->cq)
+        if (ecq != dev->cq)
             error(0, "CQ event for unknown CQ");
-        if (ibv_req_notify_cq(rdev->cq, 0) != SUCCESS0)
+        if (ibv_req_notify_cq(dev->cq, 0) != SUCCESS0)
             return maybe(0, "failed to request CQ notification");
     }
-    n = ibv_poll_cq(rdev->cq, nwc, wc);
+    n = ibv_poll_cq(dev->cq, nwc, wc);
     if (n < 0)
         return maybe(0, "CQ poll failed");
     return n;
@@ -1945,10 +2237,10 @@ maybe(int val, char *msg)
 
 
 /*
- * Encode a RCON structure into a data stream.
+ * Encode a NODE structure into a data stream.
  */
 static void
-enc_ibcon(RCON *host)
+enc_node(NODE *host)
 {
     enc_int(host->lid,   sizeof(host->lid));
     enc_int(host->qpn,   sizeof(host->qpn));
@@ -1959,10 +2251,10 @@ enc_ibcon(RCON *host)
 
 
 /*
- * Decode a RCON structure from a data stream.
+ * Decode a NODE structure from a data stream.
  */
 static void
-dec_ibcon(RCON *host)
+dec_node(NODE *host)
 {
     host->lid   = dec_int(sizeof(host->lid));
     host->qpn   = dec_int(sizeof(host->qpn));

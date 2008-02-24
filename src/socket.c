@@ -69,11 +69,8 @@ static void     datagram_client_lat(KIND kind);
 static void     datagram_server_bw(KIND kind);
 static void     datagram_server_init(int *fd, KIND kind);
 static void     datagram_server_lat(KIND kind);
-static uint32_t decode_port(uint32_t *p);
-static void     encode_port(uint32_t *p, uint32_t port);
 static void     get_socket_port(int fd, uint32_t *port);
-static void     getaddrinfo_kind(int serverflag,
-                    KIND kind, int port, struct addrinfo **aipp);
+static AI      *getaddrinfo_kind(int serverflag, KIND kind, int port);
 static void     ip_parameters(long msgSize);
 static char    *kind_name(KIND kind);
 static int      recv_full(int fd, void *ptr, int len);
@@ -577,12 +574,12 @@ static void
 client_init(int *fd, KIND kind)
 {
     uint32_t rport;
-    struct addrinfo *ai, *ailist;
+    AI *ai, *ailist;
 
     client_send_request();
     recv_mesg(&rport, sizeof(rport), "port");
-    rport = decode_port(&rport);
-    getaddrinfo_kind(0, kind, rport, &ailist);
+    rport = decode_uint32(&rport);
+    ailist = getaddrinfo_kind(0, kind, rport);
     for (ai = ailist; ai; ai = ai->ai_next) {
         if (!ai->ai_family)
             continue;
@@ -609,10 +606,10 @@ static void
 stream_server_init(int *fd, KIND kind)
 {
     uint32_t port;
-    struct addrinfo *ai, *ailist;
+    AI *ai;
     int listenFD = -1;
 
-    getaddrinfo_kind(1, kind,  Req.port, &ailist);
+    AI *ailist = getaddrinfo_kind(1, kind,  Req.port);
     for (ai = ailist; ai; ai = ai->ai_next) {
         if (!ai->ai_family)
             continue;
@@ -632,7 +629,7 @@ stream_server_init(int *fd, KIND kind)
         error(SYS, "listen failed");
 
     get_socket_port(listenFD, &port);
-    encode_port(&port, port);
+    encode_uint32(&port, port);
     send_mesg(&port, sizeof(port), "port");
     *fd = accept(listenFD, 0, 0);
     if (*fd < 0)
@@ -650,10 +647,10 @@ static void
 datagram_server_init(int *fd, KIND kind)
 {
     uint32_t port;
-    struct addrinfo *ai, *ailist;
+    AI *ai;
     int sockfd = -1;
 
-    getaddrinfo_kind(1, kind, Req.port, &ailist);
+    AI *ailist = getaddrinfo_kind(1, kind, Req.port);
     for (ai = ailist; ai; ai = ai->ai_next) {
         if (!ai->ai_family)
             continue;
@@ -672,7 +669,7 @@ datagram_server_init(int *fd, KIND kind)
 
     set_socket_buffer_size(sockfd);
     get_socket_port(sockfd, &port);
-    encode_port(&port, port);
+    encode_uint32(&port, port);
     send_mesg(&port, sizeof(port), "port");
     *fd = sockfd;
 }
@@ -682,13 +679,11 @@ datagram_server_init(int *fd, KIND kind)
  * A version of getaddrinfo that takes a numeric port and prints out an error
  * on failure.
  */
-static void
-getaddrinfo_kind(int serverflag, KIND kind, int port, struct addrinfo **aipp)
+static AI *
+getaddrinfo_kind(int serverflag, KIND kind, int port)
 {
-    int stat;
-    char *service;
-    struct addrinfo *aip;
-    struct addrinfo hints ={
+    AI *aip, *ailist;
+    AI hints ={
         .ai_flags    = AI_NUMERICSERV,
         .ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
@@ -699,12 +694,8 @@ getaddrinfo_kind(int serverflag, KIND kind, int port, struct addrinfo **aipp)
     if (kind == K_UDP)
         hints.ai_socktype = SOCK_DGRAM;
 
-    service = qasprintf("%d", port);
-    stat = getaddrinfo(serverflag ? 0 : ServerName, service, &hints, aipp);
-    free(service);
-    if (stat != SUCCESS0)
-        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
-    for (aip = *aipp; aip; aip = aip->ai_next) {
+    ailist = getaddrinfo_port(serverflag ? 0 : ServerName, port, &hints);
+    for (aip = ailist; aip; aip = aip->ai_next) {
         if (kind == K_SDP) {
             if (aip->ai_family == AF_INET || aip->ai_family == AF_INET6)
                 aip->ai_family = AF_INET_SDP;
@@ -717,6 +708,7 @@ getaddrinfo_kind(int serverflag, KIND kind, int port, struct addrinfo **aipp)
                 aip->ai_family = 0;
         }
     }
+    return ailist;
 }
 
 
@@ -797,28 +789,6 @@ recv_full(int fd, void *ptr, int len)
             set_finished();
     }
     return len-n;
-}
-
-
-/*
- * Encode a port which is stored as a 32 bit unsigned.
- */
-static void
-encode_port(uint32_t *p, uint32_t port)
-{
-    enc_init(p);
-    enc_int(port, sizeof(port));
-}
-
-
-/*
- * Decode a port which is stored as a 32 bit unsigned.
- */
-static uint32_t
-decode_port(uint32_t *p)
-{
-    dec_init(p);
-    return dec_int(sizeof(uint32_t));
 }
 
 
