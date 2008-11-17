@@ -49,7 +49,7 @@
 #define cardof(a)       (sizeof(a)/sizeof(*a))
 #define endof(a)        (&a[cardof(a)])
 #define streq(a, b)     (strcmp(a, b) == 0)
-#define offset(t, e)    ((int)&((t *)0)->e)
+#define offset(t, e)    ((long)&((t *)0)->e)
 #define is_client()     (ServerName != 0)
 #define is_sender()     (Req.flip ? !is_client() : is_client())
 
@@ -97,6 +97,8 @@ typedef enum {
     R_ACCESS_RECV,
     L_AFFINITY,
     R_AFFINITY,
+    L_ALT_PORT,
+    R_ALT_PORT,
     L_FLIP,
     R_FLIP,
     L_ID,
@@ -153,6 +155,7 @@ typedef struct REQ {
     uint16_t    req_index;              /* Request index (into Tests) */
     uint32_t    access_recv;            /* Access data after receiving */
     uint32_t    affinity;               /* Processor affinity */
+    uint32_t    alt_port;               /* Alternate path port number */
     uint32_t    flip;                   /* Flip sender/receiver */
     uint32_t    msg_size;               /* Message Size */
     uint32_t    mtu_size;               /* MTU Size */
@@ -343,6 +346,12 @@ void    run_client_ver_rc_compare_swap(void);
 void    run_server_ver_rc_compare_swap(void);
 void    run_client_ver_rc_fetch_add(void);
 void    run_server_ver_rc_fetch_add(void);
+void    run_client_xrc_bi_bw(void);
+void    run_server_xrc_bi_bw(void);
+void    run_client_xrc_bw(void);
+void    run_server_xrc_bw(void);
+void    run_client_xrc_lat(void);
+void    run_server_xrc_lat(void);
 
 
 /*

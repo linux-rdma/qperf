@@ -273,6 +273,7 @@ stream_client_bw(KIND kind)
     sync_test();
     while (!Finished) {
         int n = send_full(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -304,6 +305,7 @@ stream_server_bw(KIND kind)
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv_full(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -337,6 +339,7 @@ stream_client_lat(KIND kind)
     sync_test();
     while (!Finished) {
         int n = send_full(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -378,6 +381,7 @@ stream_server_lat(KIND kind)
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv_full(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -418,6 +422,7 @@ datagram_client_bw(KIND kind)
     sync_test();
     while (!Finished) {
         int n = write(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -449,6 +454,7 @@ datagram_server_bw(KIND kind)
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
         int n = recv(sockFD, buf, Req.msg_size, 0);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -481,6 +487,7 @@ datagram_client_lat(KIND kind)
     sync_test();
     while (!Finished) {
         int n = write(sockFD, buf, Req.msg_size);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -521,10 +528,11 @@ datagram_server_lat(KIND kind)
     sync_test();
     buf = qmalloc(Req.msg_size);
     while (!Finished) {
-        struct sockaddr_storage clientAddr;
+        SS clientAddr;
         socklen_t clientLen = sizeof(clientAddr);
         int n = recvfrom(sockfd, buf, Req.msg_size, 0,
                          (SA *)&clientAddr, &clientLen);
+
         if (Finished)
             break;
         if (n < 0) {
@@ -584,6 +592,7 @@ client_init(int *fd, KIND kind)
         if (!ai->ai_family)
             continue;
         *fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+	setsockopt_one(*fd, SO_REUSEADDR);
         if (connect(*fd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
             break;
         close(*fd);
@@ -637,6 +646,7 @@ stream_server_init(int *fd, KIND kind)
     debug("accepted %s connection", kind_name(kind));
     set_socket_buffer_size(*fd);
     close(listenFD);
+    debug("receiving to %s port %d", kind_name(kind), port);
 }
 
 
@@ -737,7 +747,7 @@ static void
 get_socket_port(int fd, uint32_t *port)
 {
     char p[NI_MAXSERV];
-    struct sockaddr_storage sa;
+    SS sa;
     socklen_t salen = sizeof(sa);
 
     if (getsockname(fd, (SA *)&sa, &salen) < 0)
@@ -758,8 +768,10 @@ static int
 send_full(int fd, void *ptr, int len)
 {
     int n = len;
+
     while (!Finished && n) {
         int i = write(fd, ptr, n);
+
         if (i < 0)
             return i;
         ptr += i;
@@ -779,8 +791,10 @@ static int
 recv_full(int fd, void *ptr, int len)
 {
     int n = len;
+
     while (!Finished && n) {
         int i = read(fd, ptr, n);
+
         if (i < 0)
             return i;
         ptr += i;

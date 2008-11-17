@@ -94,6 +94,9 @@ Categories +RDMA
         udp_lat
         ver_rc_compare_swap
         ver_rc_fetch_add
+        xrc_bi_bw
+        xrc_bw
+        xrc_lat
 Examples
     In these examples, we first run qperf on a node called myserver in server
     mode by invoking it with no arguments.  In all the subsequent examples, we
@@ -111,12 +114,15 @@ Examples
             qperf myserver rc_bi_bw
 Opts
     --access_recv OnOff (-ar)           Turn on/off accessing received data
-      -aro                              Cause received data to be accessed
+      -ar1                              Cause received data to be accessed
+    --alt_port Port (-ap)               Set alternate path port
+      --loc_alt_port Port (-lap)        Set local alternate path port
+      --rem_alt_port Port (-rap)        Set remote alternate path port
     --cpu_affinity PN (-ca)             Set processor affinity
       --loc_cpu_affinity PN (-lca)      Set local processor affinity
       --rem_cpu_affinity PN (-rca)      Set remote processor affinity
     --flip OnOff (-f)                   Flip on/off sender and receiver
-      -fo                               Flip (on) sender and receiver
+      -f1                               Flip (on) sender and receiver
     --help Topic (-h)                   Get more information on a topic
     --host Node (-H)                    Identify server node
     --id Device:Port (-i)               Set RDMA device and port
@@ -129,9 +135,9 @@ Opts
     --cq_poll OnOff                     Set polling mode on/off
       --loc_cq_poll OnOff (-lcp)        Set local polling mode on/off
       --rem_cq_poll OnOff (-rcp)        Set remote polling mode on/off
-      -cpo                              Turn polling mode on
-      -lcpo                             Turn local polling mode on
-      -rcpo                             Turn remote polling mode on
+      -cp1                              Turn polling mode on
+      -lcp1                             Turn local polling mode on
+      -rcp1                             Turn remote polling mode on
     --ip_port Port (-ip)                Set TCP port used for tests
     --precision Digits (-e)             Set precision reported
     --rd_atomic Max (-nr)               Set RDMA read/atomic count
@@ -154,7 +160,7 @@ Opts
     --unify_units (-uu)                 Unify units
     --use_bits_per_sec (-ub)            Use bits/sec rather than bytes/sec
     --use_cm OnOff (-cm)                Use RDMA Connection Manager or not
-      -cmo                              Use RDMA Connection Manager
+      -cm1                              Use RDMA Connection Manager
     --verbose (-v)                      Verbose; turn on all of -v[cstu]
       --verbose_conf (-vc)              Show configuration information
       --verbose_stat (-vs)              Show statistical information
@@ -172,8 +178,14 @@ Options
           If OnOff is non-zero, data is accessed once received.  Otherwise,
           data is ignored.  By default, OnOff is 0.  This can help to mimic
           some applications.
-      -aro
+      -ar1
           Cause received data to be accessed.
+    --alt_port Port (-ap)
+          Set alternate path port. This enables automatic path failover.
+      --loc_alt_port Port (-lap)
+          Set local alternate path port. This enables automatic path failover.
+      --rem_alt_port Port (-rap)
+          Set remote alternate path port. This enables automatic path failover.
     --cpu_affinity PN (-ca)
           Set cpu affinity to PN.  CPUs are numbered sequentially from 0.  If
           PN is "any", any cpu is allowed otherwise the cpu is limited to the
@@ -184,7 +196,7 @@ Options
           Set remote processor affinity to PN.
     --flip OnOff (-f)
           If non-zero, cause sender and receiver to play opposite roles.
-      -fo
+      -f1
           Cause sender and receiver to play opposite roles.
     --help Topic (-h)
           Print out information about Topic.  To see the list of topics, type
@@ -222,11 +234,11 @@ Options
           Locally turn polling mode on or off.
       --rem_cq_poll OnOff (-rcp)
           Remotely turn polling mode on or off.
-      -cpo
+      -cp1
           Turn polling mode on.
-      -lcpo
+      -lcp1
           Turn local polling mode on.
-      -rcpo
+      -rcp1
           Turn remote polling mode on.
     --ip_port Port (-ip)
           Use Port to run the socket tests.  This is different from
@@ -294,7 +306,7 @@ Options
           necessary to use the CM for iWARP devices.  The default is to
           establish the connection without using the CM.  This only works for
           the tests that use the RC transport.
-      -cmo
+      -cm1
           Use RDMA Connection Manager.
     --verbose (-v)
           Provide more detailed output.  Turns on -vc, -vs, -vt and -vu.
@@ -894,3 +906,52 @@ ver_rc_fetch_add +RDMA
         Tests the RC Fetch and Add Atomic operation.  The server's memory
         location starts with zero and the client successively adds one.  The
         results are checked for correctness.
+xrc_bw +RDMA
+    Purpose
+        XRC streaming one way bandwidth
+    Common Options
+        --access_recv OnOff (-ar)   Access received data
+        --id Device:Port (-i)       Set RDMA device and port
+        --msg_size Size (-m)        Set message size
+        --cq_poll OnOff             Set polling mode on/off
+        --time (-t)                 Set test duration
+    Other Options
+        --cpu_affinity, --listen_port, --mtu_size, --static_rate, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
+    Description
+        The client sends messages to the server who notes how many it received.
+        The XRC Send/Receive mechanism is used.
+xrc_bi_bw +RDMA
+    Purpose
+        XRC streaming two way bandwidth
+    Common Options
+        --access_recv OnOff (-ar)   Access received data
+        --id Device:Port (-i)       Set RDMA device and port
+        --msg_size Size (-m)        Set message size
+        --cq_poll OnOff             Set polling mode on/off
+        --time (-t)                 Set test duration
+    Other Options
+        --cpu_affinity, --listen_port, --mtu_size, --static_rate, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
+        --verbose
+    Description
+        Both the client and server exchange messages with each other using the
+        XRC Send/Receive mechanism and note how many were received.
+xrc_lat +RDMA
+    Purpose
+        XRC one way latency
+    Common Options
+        --id Device:Port (-i)   Set RDMA device and port
+        --msg_size Size (-m)    Set message size
+        --cq_poll OnOff         Set polling mode on/off
+        --time (-t)             Set test duration
+    Other Options
+        --cpu_affinity, --listen_port, --mtu_size, --static_rate, --timeout
+    Display Options
+        --precision, --unify_nodes, --unify_units, --verbose
+    Description
+        A ping pong latency test where the server and client exchange messages
+        repeatedly using XRC Send/Receive.

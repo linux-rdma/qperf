@@ -143,6 +143,7 @@ dec_int(int n)
 {
     uint64_t l = 0;
     uint8_t *p = (DecodePtr += n);
+
     while (n--)
         l = (l << 8) | (*--p & 0xFF);
     return l;
@@ -178,6 +179,7 @@ void *
 qmalloc(long n)
 {
     void *p = malloc(n);
+
     if (!p)
         error(0, "malloc failed");
     return p;
@@ -235,7 +237,7 @@ synchronize(char *msg)
 {
     send_sync(msg);
     recv_sync(msg);
-    debug("synchronize %s completed", msg);
+    debug("synchronization complete");
 }
 
 
@@ -246,6 +248,7 @@ void
 send_sync(char *msg)
 {
     int n = strlen(msg);
+
     send_mesg(msg, n, msg);
 }
 
@@ -257,8 +260,8 @@ void
 recv_sync(char *msg)
 {
     char data[64];
-
     int n = strlen(msg);
+
     if (n > sizeof(data))
         error(BUG, "buffer in recv_sync() too small");
     recv_mesg(data, n, msg);
@@ -380,9 +383,9 @@ struct addrinfo *
 getaddrinfo_port(char *node, int port, struct addrinfo *hints)
 {
     struct addrinfo *res;
-
     char *service = qasprintf("%d", port);
     int stat = getaddrinfo(node, service, hints, &res);
+
     free(service);
     if (stat != 0)
         error(0, "getaddrinfo failed: %s", gai_strerror(stat));
@@ -400,6 +403,7 @@ void
 setsockopt_one(int fd, int optname)
 {
     int one = 1;
+
     if (setsockopt(fd, SOL_SOCKET, optname, &one, sizeof(one)) >= 0)
         return;
     error(SYS, "setsockopt %d %d to 1 failed", SOL_SOCKET, optname);

@@ -94,6 +94,7 @@ run_client_rds_bw(void)
     sync_test();
     while (!Finished) {
         int n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&RAddr, RLen);
+
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -159,6 +160,7 @@ run_client_rds_lat(void)
     sync_test();
     while (!Finished) {
         int n = sendto(sockfd, buf, Req.msg_size, 0, (SA *)&RAddr, RLen);
+
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -202,6 +204,7 @@ run_server_rds_lat(void)
         SS raddr;
         socklen_t rlen = sizeof(raddr);
         int n = recvfrom(sockfd, buf, Req.msg_size, 0, (SA *)&raddr, &rlen);
+
         if (Finished)
             break;
         if (n != Req.msg_size) {
@@ -454,6 +457,7 @@ qgetnameinfo(SA *sa, socklen_t salen, char *host, size_t hostlen,
                                       char *serv, size_t servlen, int flags)
 {
     int stat = getnameinfo(sa, salen, host, hostlen, serv, servlen, flags);
+
     if (stat < 0)
         error(0, "getnameinfo failed: %s", gai_strerror(stat));
 }

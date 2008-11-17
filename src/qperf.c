@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 1                       /* Incremental version */
+#define VER_INC 2                       /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -273,6 +273,7 @@ volatile int Finished;
 PAR_NAME ParName[] ={
     { "access_recv",    L_ACCESS_RECV,    R_ACCESS_RECV   },
     { "affinity",       L_AFFINITY,       R_AFFINITY      },
+    { "alt_port",       L_ALT_PORT,       R_ALT_PORT      },
     { "flip",           L_FLIP,           R_FLIP          },
     { "id",             L_ID,             R_ID            },
     { "msg_size",       L_MSG_SIZE,       R_MSG_SIZE      },
@@ -299,6 +300,8 @@ PAR_INFO ParInfo[P_N] ={
     { R_ACCESS_RECV,    'l',  &RReq.access_recv     },
     { L_AFFINITY,       'l',  &Req.affinity         },
     { R_AFFINITY,       'l',  &RReq.affinity        },
+    { L_ALT_PORT,       'l',  &Req.alt_port         },
+    { R_ALT_PORT,       'l',  &RReq.alt_port        },
     { L_FLIP,           'l',  &Req.flip             },
     { R_FLIP,           'l',  &RReq.flip            },
     { L_ID,             'p',  &Req.id               },
@@ -378,6 +381,13 @@ DICT Renamed[] = {
     {   "-vS",              "-vvs",                 },
     {   "-vT",              "-vvt",                 },
     {   "-vU",              "-vvu",                 },
+    /* options that are on */
+    {   "-aro",             "-ar1"                  },
+    {   "-cmo",             "-cm1"                  },
+    {   "-fo",              "-f1"                   },
+    {   "-cpo",             "-cp1"                  },
+    {   "-lcpo",            "-lcp1"                 },
+    {   "-rcpo",            "-rcp1"                 },
     /* miscellaneous */
     {   "-Ar",              "-ar"                   },
     {   "-M",               "-mt"                   },
@@ -393,7 +403,13 @@ DICT Renamed[] = {
 OPTION Options[] ={
     { "--access_recv",        "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
     {   "-ar",                "int",   L_ACCESS_RECV,   R_ACCESS_RECV   },
-    {   "-aro",               "set1",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    {   "-ar1",               "set1",  L_ACCESS_RECV,   R_ACCESS_RECV   },
+    { "--alt_port",           "int",   L_ALT_PORT,      R_ALT_PORT      },
+    {   "-ap",                "int",   L_ALT_PORT,      R_ALT_PORT      },
+    {  "--loc_alt_port",      "int",   L_ALT_PORT,                      },
+    {   "-lap",               "int",   L_ALT_PORT,                      },
+    {  "--rem_alt_port",      "int",   R_ALT_PORT                       },
+    {   "-rap",               "int",   R_ALT_PORT                       },
     { "--cpu_affinity",       "int",   L_AFFINITY,      R_AFFINITY      },
     {   "-ca",                "int",   L_AFFINITY,      R_AFFINITY      },
     {  "--loc_cpu_affinity",  "int",   L_AFFINITY,                      },
@@ -404,7 +420,7 @@ OPTION Options[] ={
     {   "-D",                 "Sdebug",                                 },
     { "--flip",               "int",   L_FLIP,          R_FLIP          },
     {   "-f",                 "int",   L_FLIP,          R_FLIP          },
-    {   "-fo",                "set1",  L_FLIP,          R_FLIP          },
+    {   "-f1",                "set1",  L_FLIP,          R_FLIP          },
     { "--help",               "help"                                    }, 
     {   "-h",                 "help"                                    }, 
     { "--host",               "host",                                   },
@@ -425,13 +441,13 @@ OPTION Options[] ={
     {   "-n",                 "int",   L_NO_MSGS,       R_NO_MSGS       },
     { "--cq_poll",            "int",   L_POLL_MODE,     R_POLL_MODE     },
     {  "-cp",                 "int",   L_POLL_MODE,     R_POLL_MODE     },
-    {   "-cpo",               "set1",  L_POLL_MODE,     R_POLL_MODE     },
+    {   "-cp1",               "set1",  L_POLL_MODE,     R_POLL_MODE     },
     {  "--loc_cq_poll",       "int",   L_POLL_MODE,                     },
     {   "-lcp",               "int",   L_POLL_MODE,                     },
-    {   "-lcpo",              "set1",  L_POLL_MODE                      },
+    {   "-lcp1",              "set1",  L_POLL_MODE                      },
     {  "--rem_cq_poll",       "int",   R_POLL_MODE                      },
     {   "-rcp",               "int",   R_POLL_MODE                      },
-    {   "-rcpo",              "set1",  R_POLL_MODE                      },
+    {   "-rcp1",              "set1",  R_POLL_MODE                      },
     { "--ip_port",            "int",   L_PORT,          R_PORT          },
     {   "-ip",                "int",   L_PORT,          R_PORT          },
     { "--precision",          "precision",                              },
@@ -476,7 +492,7 @@ OPTION Options[] ={
     {   "-ub",                "ub",                                     },
     { "--use_cm",             "int",   L_USE_CM,        R_USE_CM        },
     {   "-cm",                "int",   L_USE_CM,        R_USE_CM        },
-    {   "-cmo",               "set1",  L_USE_CM,        R_USE_CM        },
+    {   "-cm1",               "set1",  L_USE_CM,        R_USE_CM        },
     { "--verbose",            "v",                                      },
     {   "-v",                 "v",                                      },
     { "--verbose_conf",       "vc",                                     },
@@ -543,6 +559,9 @@ TEST Tests[] ={
     test(ud_lat),
     test(ver_rc_compare_swap),
     test(ver_rc_fetch_add),
+    test(xrc_bi_bw),
+    test(xrc_bw),
+    test(xrc_lat),
 #endif
 };
 
@@ -786,6 +805,7 @@ do_option(OPTION *option, char ***argvp)
         /* Help */
         char **usage;
         char *category = (*argvp)[1];
+
         if (!category)
             category = "main";
         for (usage = Usage; *usage; usage += 2)
@@ -1137,7 +1157,7 @@ server(void)
         TEST *test;
         int s = offset(REQ, req_index);
 
-        debug("waiting for request");
+        debug("ready for requests");
         if (!server_recv_request())
             continue;
         pid = fork();
@@ -1164,7 +1184,7 @@ server(void)
 
         test = &Tests[Req.req_index];
         TestName = test->name;
-        debug("request is %s", TestName);
+        debug("received request: %s", TestName);
         init_lstat();
         Finished = 0;
         set_affinity();
@@ -1283,7 +1303,7 @@ client(TEST *test)
     RReq.ver_inc = VER_INC;
     RReq.req_index = test - Tests;
     TestName = test->name;
-    debug("sending request %s", TestName);
+    debug("sending request: %s", TestName);
     init_lstat();
     printf("%s:\n", TestName);
     Finished = 0;
@@ -1378,12 +1398,12 @@ exchange_results(void)
         recv_mesg(&stat, sizeof(stat), "results");
         dec_init(&stat);
         dec_stat(&RStat);
-        send_sync("results");
+        send_sync("synchronization after test");
     } else {
         enc_init(&stat);
         enc_stat(&LStat);
         send_mesg(&stat, sizeof(stat), "results");
-        recv_sync("results");
+        recv_sync("synchronization after test");
     }
 }
 
@@ -1583,7 +1603,7 @@ run_server_quit(void)
 void
 sync_test(void)
 {
-    synchronize("test");
+    synchronize("synchronization before test");
     start_test_timer(Req.time);
 }
 
@@ -1601,7 +1621,7 @@ start_test_timer(int seconds)
     if (!seconds)
         return;
 
-    debug("starting timer");
+    debug("starting timer for %d seconds", seconds);
     itimerval.it_value.tv_sec = seconds;
     itimerval.it_interval.tv_usec = 1;
     setitimer(ITIMER_REAL, &itimerval, 0);
@@ -2422,6 +2442,7 @@ enc_req(REQ *host)
     enc_int(host->req_index,     sizeof(host->req_index));
     enc_int(host->access_recv,   sizeof(host->access_recv));
     enc_int(host->affinity,      sizeof(host->affinity));
+    enc_int(host->alt_port,      sizeof(host->alt_port));
     enc_int(host->flip,          sizeof(host->flip));
     enc_int(host->msg_size,      sizeof(host->msg_size));
     enc_int(host->mtu_size,      sizeof(host->mtu_size));
@@ -2462,6 +2483,7 @@ dec_req_data(REQ *host)
     host->req_index     = dec_int(sizeof(host->req_index));
     host->access_recv   = dec_int(sizeof(host->access_recv));
     host->affinity      = dec_int(sizeof(host->affinity));
+    host->alt_port      = dec_int(sizeof(host->alt_port));
     host->flip          = dec_int(sizeof(host->flip));
     host->msg_size      = dec_int(sizeof(host->msg_size));
     host->mtu_size      = dec_int(sizeof(host->mtu_size));
