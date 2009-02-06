@@ -2,8 +2,8 @@
  * qperf - main.
  * Measure socket and RDMA performance.
  *
- * Copyright (c) 2002-2008 Johann George.  All rights reserved.
- * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2009 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 2                       /* Incremental version */
+#define VER_INC 3                       /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -85,6 +85,19 @@ typedef struct OPTION {
     int         arg1;                   /* First argument */
     int         arg2;                   /* Second argument */
 } OPTION;
+
+
+/*
+ * Used to loop through a range of values.
+ */
+typedef struct LOOP {
+    struct LOOP  *next;                 /* Pointer to next loop */
+    OPTION       *option;               /* Loop variable */
+    long          init;                 /* Initial value */
+    long          last;                 /* Last value */
+    long          incr;                 /* Increment */
+    int           mult;                 /* If set, multiply, otherwise add */
+} LOOP;
 
 
 /*
@@ -156,80 +169,84 @@ typedef struct CONF {
 /*
  * Function prototypes.
  */
-static void     add_ustat(USTAT *l, USTAT *r);
-static long     arg_long(char ***argvp);
-static long     arg_size(char ***argvp);
-static char    *arg_strn(char ***argvp);
-static long     arg_time(char ***argvp);
-static void     calc_node(RESN *resn, STAT *stat);
-static void     calc_results(void);
-static void     client(TEST *test);
-static int      cmpsub(char *s2, char *s1);
-static char    *commify(char *data);
-static void     dec_req_data(REQ *host);
-static void     dec_req_version(REQ *host);
-static void     dec_stat(STAT *host);
-static void     dec_ustat(USTAT *host);
-static void     do_args(char *args[]);
-static void     do_option(OPTION *option, char ***argvp);
-static void     enc_req(REQ *host);
-static void     enc_stat(STAT *host);
-static void     enc_ustat(USTAT *host);
-static TEST    *find_test(char *name);
-static OPTION  *find_option(char *name);
-static void     get_conf(CONF *conf);
-static void     get_cpu(CONF *conf);
-static void     get_times(CLOCK timex[T_N]);
-static void     initialize(void);
-static void     init_lstat(void);
-static void     init_vars(void);
-static int      nice_1024(char *pref, char *name, long long value);
+static void      add_ustat(USTAT *l, USTAT *r);
+static long      arg_long(char ***argvp);
+static long      arg_size(char ***argvp);
+static char     *arg_strn(char ***argvp);
+static long      arg_time(char ***argvp);
+static void      calc_node(RESN *resn, STAT *stat);
+static void      calc_results(void);
+static void      client(TEST *test);
+static int       cmpsub(char *s2, char *s1);
+static char     *commify(char *data);
+static void      dec_req_data(REQ *host);
+static void      dec_req_version(REQ *host);
+static void      dec_stat(STAT *host);
+static void      dec_ustat(USTAT *host);
+static void      do_args(char *args[]);
+static void      do_loop(LOOP *loop, TEST *test);
+static void      do_option(OPTION *option, char ***argvp);
+static void      enc_req(REQ *host);
+static void      enc_stat(STAT *host);
+static void      enc_ustat(USTAT *host);
+static TEST     *find_test(char *name);
+static OPTION   *find_option(char *name);
+static void      get_conf(CONF *conf);
+static void      get_cpu(CONF *conf);
+static void      get_times(CLOCK timex[T_N]);
+static void      initialize(void);
+static void      init_lstat(void);
+static char     *loop_arg(char **pp);
+static int       nice_1024(char *pref, char *name, long long value);
 static PAR_INFO *par_info(PAR_INDEX index);
 static PAR_INFO *par_set(char *name, PAR_INDEX index);
-static int      par_isset(PAR_INDEX index);
-static void     place_any(char *pref, char *name, char *unit, char *data,
-                          char *altn);
-static void     place_show(void);
-static void     place_val(char *pref, char *name, char *unit, double value);
-static void     remotefd_close(void);
-static void     remotefd_setup(void);
-static void     run_client_conf(void);
-static void     run_client_quit(void);
-static void     run_server_conf(void);
-static void     run_server_quit(void);
-static void     server(void);
-static void     server_listen(void);
-static int      server_recv_request(void);
-static void     set_affinity(void);
-static void     set_signals(void);
-static void     show_debug(void);
-static void     show_info(MEASURE measure);
-static void     show_rest(void);
-static void     show_used(void);
-static void     sig_alrm(int signo, siginfo_t *siginfo, void *ucontext);
-static void     sig_quit(int signo, siginfo_t *siginfo, void *ucontext);
-static void     sig_urg(int signo, siginfo_t *siginfo, void *ucontext);
-static char    *skip_colon(char *s);
-static void     start_test_timer(int seconds);
-static void     strncopy(char *d, char *s, int n);
-static int      verbose(int type, double value);
-static void     version_error(void);
-static void     view_band(int type, char *pref, char *name, double value);
-static void     view_cost(int type, char *pref, char *name, double value);
-static void     view_cpus(int type, char *pref, char *name, double value);
-static void     view_rate(int type, char *pref, char *name, double value);
-static void     view_long(int type, char *pref, char *name, long long value);
-static void     view_size(int type, char *pref, char *name, long long value);
-static void     view_strn(int type, char *pref, char *name, char *value);
-static void     view_time(int type, char *pref, char *name, double value);
+static int       par_isset(PAR_INDEX index);
+static void      parse_loop(char ***argvp);
+static void      place_any(char *pref, char *name, char *unit, char *data,
+                           char *altn);
+static void      place_show(void);
+static void      place_val(char *pref, char *name, char *unit, double value);
+static void      remotefd_close(void);
+static void      remotefd_setup(void);
+static void      run_client_conf(void);
+static void      run_client_quit(void);
+static void      run_server_conf(void);
+static void      run_server_quit(void);
+static void      server(void);
+static void      server_listen(void);
+static int       server_recv_request(void);
+static void      set_affinity(void);
+static void      set_signals(void);
+static void      show_debug(void);
+static void      show_info(MEASURE measure);
+static void      show_rest(void);
+static void      show_used(void);
+static void      sig_alrm(int signo, siginfo_t *siginfo, void *ucontext);
+static void      sig_quit(int signo, siginfo_t *siginfo, void *ucontext);
+static void      sig_urg(int signo, siginfo_t *siginfo, void *ucontext);
+static char     *skip_colon(char *s);
+static void      start_test_timer(int seconds);
+static long      str_size(char *arg, char *str);
+static void      strncopy(char *d, char *s, int n);
+static char     *two_args(char ***argvp);
+static int       verbose(int type, double value);
+static void      version_error(void);
+static void      view_band(int type, char *pref, char *name, double value);
+static void      view_cost(int type, char *pref, char *name, double value);
+static void      view_cpus(int type, char *pref, char *name, double value);
+static void      view_rate(int type, char *pref, char *name, double value);
+static void      view_long(int type, char *pref, char *name, long long value);
+static void      view_size(int type, char *pref, char *name, long long value);
+static void      view_strn(int type, char *pref, char *name, char *value);
+static void      view_time(int type, char *pref, char *name, double value);
 
 
 /*
  * Configurable variables.
  */
-static int      ListenPort      = DEF_LISTEN_PORT;
-static int      Precision       = DEF_PRECISION;
-static int      UseBitsPerSec   = 0;
+static int  ListenPort      = DEF_LISTEN_PORT;
+static int  Precision       = DEF_PRECISION;
+static int  UseBitsPerSec   = 0;
 
 
 /*
@@ -238,6 +255,7 @@ static int      UseBitsPerSec   = 0;
 static REQ      RReq;
 static STAT     IStat;
 static int      ListenFD;
+static LOOP    *Loops;
 static int      ProcStatFD;
 static STAT     RStat;
 static int      ShowIndex;
@@ -284,6 +302,7 @@ PAR_NAME ParName[] ={
     { "rd_atomic",      L_RD_ATOMIC,      R_RD_ATOMIC     },
     { "service_level",  L_SL,             R_SL            },
     { "sock_buf_size",  L_SOCK_BUF_SIZE,  R_SOCK_BUF_SIZE },
+    { "src_path_bits",  L_SRC_PATH_BITS,  R_SRC_PATH_BITS },
     { "time",           L_TIME,           R_TIME          },
     { "timeout",        L_TIMEOUT,        R_TIMEOUT       },
     { "use_cm",         L_USE_CM,         R_USE_CM        },
@@ -322,6 +341,8 @@ PAR_INFO ParInfo[P_N] ={
     { R_SL,             'l',  &RReq.sl              },
     { L_SOCK_BUF_SIZE,  's',  &Req.sock_buf_size    },
     { R_SOCK_BUF_SIZE,  's',  &RReq.sock_buf_size   },
+    { L_SRC_PATH_BITS,  's',  &Req.src_path_bits    },
+    { R_SRC_PATH_BITS,  's',  &RReq.src_path_bits   },
     { L_STATIC_RATE,    'p',  &Req.static_rate      },
     { R_STATIC_RATE,    'p',  &RReq.static_rate     },
     { L_TIME,           't',  &Req.time             },
@@ -433,6 +454,8 @@ OPTION Options[] ={
     {   "-ri",                "str",   R_ID                             },
     { "--listen_port",        "Slp",                                    },
     {   "-lp",                "Slp",                                    },
+    { "--loop",               "loop",                                   },
+    {   "-oo",                "loop",                                   },
     { "--msg_size",           "size",  L_MSG_SIZE,      R_MSG_SIZE      },
     {   "-m",                 "size",  L_MSG_SIZE,      R_MSG_SIZE      },
     { "--mtu_size",           "size",  L_MTU_SIZE,      R_MTU_SIZE      },
@@ -470,6 +493,12 @@ OPTION Options[] ={
     {   "-lsb",               "size",  L_SOCK_BUF_SIZE                  },
     {  "--rem_sock_buf_size", "size",  R_SOCK_BUF_SIZE                  },
     {   "-rsb",               "size",  R_SOCK_BUF_SIZE                  },
+    { "--src_path_bits",      "size",  L_SRC_PATH_BITS, R_SRC_PATH_BITS },
+    {   "-sp",                "size",  L_SRC_PATH_BITS, R_SRC_PATH_BITS },
+    {  "--loc_src_path_bits", "size",  L_SRC_PATH_BITS                  },
+    {   "-lsp",               "size",  L_SRC_PATH_BITS                  },
+    {  "--rem_src_path_bits", "size",  R_SRC_PATH_BITS                  },
+    {   "-rsp",               "size",  R_SRC_PATH_BITS                  },
     { "--static_rate",        "str",   L_STATIC_RATE,   R_STATIC_RATE   },
     {   "-sr",                "str",   L_STATIC_RATE,   R_STATIC_RATE   },
     {  "--loc_static_rate",   "str",   L_STATIC_RATE                    },
@@ -577,20 +606,10 @@ main(int argc, char *argv[])
 
 
 /*
- * Initialize.
- */
-static void
-initialize(void)
-{
-    init_vars();
-}
-
-
-/*
  * Initialize variables.
  */
 static void
-init_vars(void)
+initialize(void)
 {
     int i;
 
@@ -614,6 +633,7 @@ skip_colon(char *s)
 {
     for (;;) {
         int c = *s++;
+
         if (c == ':')
             break;
         if (c == '\0')
@@ -635,6 +655,7 @@ cmpsub(char *s2, char *s1)
     for (;;) {
         int c1 = *s1++;
         int c2 = *s2++;
+
         if (c1 == '\0')
             return 1;
         if (c2 == '\0')
@@ -693,7 +714,7 @@ sig_quit(int signo, siginfo_t *siginfo, void *ucontext)
 static void
 sig_urg(int signo, siginfo_t *siginfo, void *ucontext)
 {
-    urgent_error();
+    urgent();
 }
 
 
@@ -720,15 +741,17 @@ do_args(char *args[])
             if (!ServerName)
                 ServerName = arg;
             else {
-                TEST *p = find_test(arg);
-                if (!p)
+                TEST *test = find_test(arg);
+
+                if (!test)
                     error(0, "%s: bad test; try: qperf --help tests", arg);
-                client(p);
+                do_loop(Loops, test);
                 testSpecified = 1;
             }
             ++args;
         }
     }
+
     if (!isClient)
         server();
     else if (!testSpecified) {
@@ -738,6 +761,34 @@ do_args(char *args[])
         if (find_test(ServerName))
             error(0, "must specify host name first; try: qperf --help");
         error(0, "must specify a test type; try: qperf --help");
+    }
+}
+
+
+/*
+ * Loop through a series of tests.
+ */
+static void
+do_loop(LOOP *loop, TEST *test)
+{
+    if (!loop)
+        client(test);
+    else {
+        long l = loop->init;
+
+        while (l <= loop->last) {
+            char   buf[64];
+            char  *args[2] = {loop->option->name, buf};
+            char **argv = args;
+
+            snprintf(buf, sizeof(buf), "%ld", l);
+            do_option(loop->option, &argv);
+            do_loop(loop->next, test);
+            if (loop->mult)
+                l *= loop->incr;
+            else
+                l += loop->incr;
+        }
     }
 }
 
@@ -780,6 +831,7 @@ find_test(char *name)
 {
     int n = cardof(Tests);
     TEST *p = Tests;
+
     for (; n--; ++p)
         if (streq(name, p->name))
             return p;
@@ -824,6 +876,8 @@ do_option(OPTION *option, char ***argvp)
         long v = arg_long(argvp);
         setp_u32(option->name, option->arg1, v);
         setp_u32(option->name, option->arg2, v);
+    } else if (streq(t, "loop")) {
+        parse_loop(argvp);
     } else if (streq(t, "lp")) {
         ListenPort = arg_long(argvp);
     } else if (streq(t, "precision")) {
@@ -910,25 +964,115 @@ do_option(OPTION *option, char ***argvp)
 
 
 /*
- * If any options were set but were not used, print out a warning message for
- * the user.
+ * Parse a loop option.
  */
-void
-opt_check(void)
+static void
+parse_loop(char ***argvp)
 {
-    PAR_INFO *p;
-    PAR_INFO *q;
-    PAR_INFO *r = endof(ParInfo);
+    char *opt  = **argvp;
+    char *s    = two_args(argvp);
+    char *name = loop_arg(&s);
+    char *init = loop_arg(&s);
+    char *last = loop_arg(&s);
+    char *incr = loop_arg(&s);
+    LOOP *loop = qmalloc(sizeof(LOOP));
 
-    for (p = ParInfo; p < r; ++p) {
-        if (p->used || !p->set)
-            continue;
-        error(RET, "warning: %s set but not used in test %s",
-                                                        p->name, TestName);
-        for (q = p+1; q < r; ++q)
-            if (q->set && q->name == p->name)
-                q->set = 0;
+    memset(loop, 0, sizeof(*loop));
+
+    /* Parse variable name */
+    {
+        int n = cardof(Options);
+        OPTION *p = Options;
+
+        if (!name)
+            name = "msg_size";
+        for (;;) {
+            char *s = p->name;
+
+            if (n-- == 0)
+                error(0, "%s: %s: no such variable", opt, name);
+            if (*s++ != '-')
+                continue;
+            if (*s == '-')
+                s++;
+            if (streq(name, s))
+                break;
+            p++;
+        }
+        loop->option = p;
     }
+
+    /* Parse increment */
+    if (!incr)
+        loop->incr = 0;
+    else {
+        if (incr[0] == '*') {
+            incr++;
+            loop->mult = 1;
+        }
+        loop->incr = str_size(incr, opt);
+        if (loop->incr < 1)
+            error(0, "%s: %s: increment must be positive", opt, incr);
+    }
+
+    /* Parse initial value */
+    if (init)
+        loop->init = str_size(init, opt);
+    else
+        loop->init = loop->mult ? 1 : 0;
+
+    /* Parse last value */
+    if (!last)
+        error(0, "%s: must specify limit", opt);
+    loop->last = str_size(last, opt);
+
+    /* Insert into loop list */
+    if (!Loops)
+        Loops = loop;
+    else {
+        LOOP *l = Loops;
+
+        while (l->next)
+            l = l->next;
+        l->next = loop;
+    }
+}
+
+
+/*
+ * Given a string consisting of arguments separated by colons, return the next
+ * argument and prepare for scanning the next one.
+ */
+static char *
+loop_arg(char **pp)
+{
+    char *a = *pp;
+    char *p = a;
+
+    while (*p) {
+        if (*p == ':') {
+            *p = '\0';
+            *pp = p + 1;
+            break;
+        }
+        ++p;
+    }
+    return a[0] ? a : 0;
+}
+
+
+/*
+ * Ensure that two arguments exist.
+ */
+static char *
+two_args(char ***argvp)
+{
+    char **argv = *argvp;
+
+    if (!argv[1])
+        error(0, "%s: missing argument", argv[0]);
+    *argvp += 2;
+    return argv[1];
 }
 
 
@@ -960,37 +1104,47 @@ arg_long(char ***argvp)
 static long
 arg_size(char ***argvp)
 {
-    char *p;
-    long double d;
-    long l = 0;
+    long l;
     char **argv = *argvp;
 
+    *argvp += 2;
     if (!argv[1])
         error(0, "missing argument to %s", argv[0]);
-    d = strtold(argv[1], &p);
-    if (d < 0)
+    l = str_size(argv[1], argv[0]);
+    if (l < 0)
         error(0, "%s requires a non-negative number", argv[0]);
+    return l;
+}
+
+
+/*
+ * Scan a size argument from a string.
+ */
+static long
+str_size(char *str, char *arg)
+{
+    char *p;
+    long m = 1;
+    long double d = strtold(str, &p);
 
     if (p[0] == '\0')
-        l = d;
-    else {
-        if (streq(p, "kb") || streq(p, "k"))
-            l = (long)(d * (1000));
-        else if (streq(p, "mb") || streq(p, "m"))
-            l = (long)(d * (1000 * 1000));
-        else if (streq(p, "gb") || streq(p, "g"))
-            l = (long)(d * (1000 * 1000 * 1000));
-        else if (streq(p, "kib") || streq(p, "K"))
-            l = (long)(d * (1024));
-        else if (streq(p, "mib") || streq(p, "M"))
-            l = (long)(d * (1024 * 1024));
-        else if (streq(p, "gib") || streq(p, "G"))
-            l = (long)(d * (1024 * 1024 * 1024));
-        else
-            error(0, "bad argument: %s", argv[1]);
-    }
-    *argvp += 2;
-    return l;
+        m = 1;
+    else if (streq(p, "kb") || streq(p, "k"))
+        m = 1000;
+    else if (streq(p, "mb") || streq(p, "m"))
+        m = 1000 * 1000;
+    else if (streq(p, "gb") || streq(p, "g"))
+        m = 1000 * 1000 * 1000;
+    else if (streq(p, "kib") || streq(p, "K"))
+        m = 1024;
+    else if (streq(p, "mib") || streq(p, "M"))
+        m = 1024 * 1024;
+    else if (streq(p, "gib") || streq(p, "G"))
+        m = 1024 * 1024 * 1024;
+    else
+        error(0, "%s: bad size: %s", arg, str);
+
+    return d * m;
 }
 
 
@@ -1001,6 +1155,7 @@ static char *
 arg_strn(char ***argvp)
 {
     char **argv = *argvp;
+
     if (!argv[1])
         error(0, "missing argument to %s", argv[0]);
     *argvp += 2;
@@ -1016,11 +1171,12 @@ arg_time(char ***argvp)
 {
     char *p;
     long double d;
-
     long l = 0;
     char **argv = *argvp;
+
     if (!argv[1])
         error(0, "missing argument to %s", argv[0]);
+
     d = strtold(argv[1], &p);
     if (d < 0)
         error(0, "%s requires a non-negative number", argv[0]);
@@ -1042,6 +1198,7 @@ arg_time(char ***argvp)
         else
             error(0, "bad argument: %s", argv[1]);
     }
+
     *argvp += 2;
     return l;
 }
@@ -1065,6 +1222,7 @@ void
 setp_u32(char *name, PAR_INDEX index, uint32_t l)
 {
     PAR_INFO *p = par_set(name, index);
+
     if (!p)
         return;
     *((uint32_t *)p->ptr) = l;
@@ -1078,6 +1236,7 @@ void
 setp_str(char *name, PAR_INDEX index, char *s)
 {
     PAR_INFO *p = par_set(name, index);
+
     if (!p)
         return;
     if (strlen(s) >= STRSIZE)
@@ -1093,6 +1252,7 @@ void
 par_use(PAR_INDEX index)
 {
     PAR_INFO *p = par_info(index);
+
     p->used = 1;
     p->inuse = 1;
 }
@@ -1105,6 +1265,7 @@ static PAR_INFO *
 par_set(char *name, PAR_INDEX index)
 {
     PAR_INFO *p = par_info(index);
+
     if (index == P_NULL)
         return 0;
     if (name) {
@@ -1141,6 +1302,29 @@ par_info(PAR_INDEX index)
     if (index != p->index)
         error(BUG, "par_info: table out of order: %d != %d", index, p-index);
     return p;
+}
+
+
+/*
+ * If any options were set but were not used, print out a warning message for
+ * the user.
+ */
+void
+opt_check(void)
+{
+    PAR_INFO *p;
+    PAR_INFO *q;
+    PAR_INFO *r = endof(ParInfo);
+
+    for (p = ParInfo; p < r; ++p) {
+        if (p->used || !p->set)
+            continue;
+        error(RET, "warning: %s set but not used in test %s",
+                                                        p->name, TestName);
+        for (q = p+1; q < r; ++q)
+            if (q->set && q->name == p->name)
+                q->set = 0;
+    }
 }
 
 
@@ -1237,8 +1421,8 @@ server_listen(void)
         .ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
     };
-
     AI *ailist = getaddrinfo_port(0, ListenPort, &hints);
+
     for (ai = ailist; ai; ai = ai->ai_next) {
         ListenFD = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (ListenFD < 0)
@@ -1325,8 +1509,8 @@ client_send_request(void)
         .ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
     };
-
     AI *ailist = getaddrinfo_port(ServerName, ListenPort, &hints);
+
     RemoteFD = -1;
     if (Wait)
         start_test_timer(Wait);
@@ -1346,9 +1530,11 @@ client_send_request(void)
             break;
         sleep(1);
     }
+
     if (Wait)
         stop_test_timer();
     freeaddrinfo(ailist);
+
     if (RemoteFD < 0)
         error(0, "failed to connect");
     remotefd_setup();
@@ -1365,6 +1551,7 @@ static void
 remotefd_setup(void)
 {
     int one = 1;
+
     if (ioctl(RemoteFD, FIONBIO, &one) < 0)
         error(SYS, "ioctl FIONBIO failed");
     if (fcntl(RemoteFD, F_SETOWN, getpid()) < 0)
@@ -1448,6 +1635,7 @@ static void
 run_server_conf(void)
 {
     CONF conf;
+
     get_conf(&conf);
     send_mesg(&conf, sizeof(conf), "configuration");
 }
@@ -1482,10 +1670,10 @@ get_cpu(CONF *conf)
     char buf[BUFSIZE];
     char cpu[BUFSIZE];
     char mhz[BUFSIZE];
-
     int cpus = 0;
     int mixed = 0;
     FILE *fp = fopen("/proc/cpuinfo", "r");
+
     if (!fp)
         error(0, "cannot open /proc/cpuinfo");
     cpu[0] = '\0';
@@ -1630,13 +1818,13 @@ start_test_timer(int seconds)
 
 /*
  * Stop timing.  Note that the end time is obtained by the first call to
- * set_finished.  In the tests, usually, when SIGALRM goes off, it is executing
- * a read or write system call which gets interrupted.  If SIGALRM goes off
- * after Finished is checked but before the system call is performed, the
- * system call will be executed and it will take the second SIGALRM call
- * generated by the interval timer to wake it up.  Hence, we save the end times
- * in sig_alrm.  Note that if Finished is set, we reject any packets that are
- * sent or arrive in order not to cheat.
+ * set_finished.  In the tests, when SIGALRM goes off, it may be executing a
+ * system call which gets interrupted.  If SIGALRM goes off after Finished is
+ * checked but before the system call is initiated, the system call will be
+ * executed and it will take the second SIGALRM call generated by the interval
+ * timer to wake it up.  Hence, we save the end times in sig_alrm.  Note that
+ * if Finished is set, we reject any packets that are sent or arrive in order
+ * not to cheat.
  */
 void
 stop_test_timer(void)
@@ -2348,6 +2536,7 @@ static void
 place_any(char *pref, char *name, char *unit, char *data, char *altn)
 {
     SHOW *show = &ShowTable[ShowIndex++];
+
     if (ShowIndex > cardof(ShowTable))
         error(BUG, "need to increase size of ShowTable");
     show->pref = pref;
@@ -2452,6 +2641,7 @@ enc_req(REQ *host)
     enc_int(host->rd_atomic,     sizeof(host->rd_atomic));
     enc_int(host->sl,            sizeof(host->sl));
     enc_int(host->sock_buf_size, sizeof(host->sock_buf_size));
+    enc_int(host->src_path_bits, sizeof(host->src_path_bits));
     enc_int(host->time,          sizeof(host->time));
     enc_int(host->timeout,       sizeof(host->timeout));
     enc_int(host->use_cm,        sizeof(host->use_cm));
@@ -2493,6 +2683,7 @@ dec_req_data(REQ *host)
     host->rd_atomic     = dec_int(sizeof(host->rd_atomic));
     host->sl            = dec_int(sizeof(host->sl));
     host->sock_buf_size = dec_int(sizeof(host->sock_buf_size));
+    host->src_path_bits = dec_int(sizeof(host->src_path_bits));
     host->time          = dec_int(sizeof(host->time));
     host->timeout       = dec_int(sizeof(host->timeout));
     host->use_cm        = dec_int(sizeof(host->use_cm));

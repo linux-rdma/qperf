@@ -1,8 +1,8 @@
 /*
  * qperf - handle RDMA tests.
  *
- * Copyright (c) 2002-2008 Johann George.  All rights reserved.
- * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2009 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -1199,27 +1199,32 @@ rd_pp_lat_loop(DEVICE *dev, IOMODE iomode)
 
 /*
  * Loop sending packets back and forth using RDMA Write and polling to measure
- * latency.  Note that if we increase the number of entries of wc to be NCQE,
- * on the PS HCA, the latency is much longer.
+ * latency.  This is the strategy used by some of the MPIs.  Note that it does
+ * not matter what characters clientid and serverid are set to as long as they
+ * are different.  Note also that we must set *p and *q before calling
+ * sync_test to avoid a race condition.
  */
 static void
 rd_rdma_write_poll_lat(int transport)
 {
     DEVICE dev;
-    volatile char *p;
-    volatile char *q;
-    int send  = is_client() ? 1 : 0;
-    int locID = send;
-    int remID = !locID;
+    volatile unsigned char *p, *q;
+    int send, locid, remid;
+    int clientid = 0x55;
+    int serverid = 0xaa;
 
+    if (is_client())
+        send = 1, locid = clientid, remid = serverid;
+    else
+        send = 0, locid = serverid, remid = clientid;
     rd_open(&dev, transport, NCQE, 0);
     rd_prep(&dev, 0);
+    p = (unsigned char *)dev.buffer;
+    q = p + dev.msg_size-1;
+    *p = locid;
+    *q = locid;
     sync_test();
-    p = &dev.buffer[0];
-    q = &dev.buffer[dev.msg_size-1];
     while (!Finished) {
-        *p = locID;
-        *q = locID;
         if (send) {
             int i;
             int n;
@@ -1242,10 +1247,12 @@ rd_rdma_write_poll_lat(int transport)
             }
         }
         while (!Finished)
-            if (*p == remID && *q == remID)
+            if (*p == remid && *q == remid)
                 break;
         LStat.r.no_bytes += dev.msg_size;
         LStat.r.no_msgs++;
+        *p = locid;
+        *q = locid;
         send = 1;
     }
     stop_test_timer();
@@ -1448,6 +1455,8 @@ rd_params(int transport, long msg_size, int poll, int atomic)
         par_use(R_SL);
         par_use(L_STATIC_RATE);
         par_use(R_STATIC_RATE);
+        par_use(L_SRC_PATH_BITS);
+        par_use(R_SRC_PATH_BITS);
     }
 
     if (msg_size) {
@@ -2068,6 +2077,8 @@ ib_open(DEVICE *dev)
             error(SYS, "query port failed");
         srand48(getpid()*time(0));
         dev->lnode.lid = port_attr.lid;
+	if (port_attr.lmc > 0)
+	    dev->lnode.lid += Req.src_path_bits & ((1 << port_attr.lmc) - 1);
     }
 
     /* Create QP */
@@ -2113,6 +2124,9 @@ ib_open(DEVICE *dev)
         if (stat != SUCCESS0)
             error(SYS, "query port failed");
         dev->lnode.alt_lid = port_attr.lid;
+	if (port_attr.lmc > 0)
+	    dev->lnode.alt_lid +=
+                Req.src_path_bits & ((1 << port_attr.lmc) - 1);
     }
 }
 
@@ -2136,30 +2150,33 @@ ib_prep(DEVICE *dev)
             .dlid           = dev->rnode.lid,
             .port_num       = dev->ib.port,
             .static_rate    = dev->ib.rate,
+	    .src_path_bits  = Req.src_path_bits,
             .sl             = Req.sl
         }
     };
     struct ibv_qp_attr rts_attr ={
-        .qp_state        = IBV_QPS_RTS,
-        .timeout         = LOCAL_ACK_TIMEOUT,
-        .retry_cnt       = RETRY_CNT,
-        .rnr_retry       = RNR_RETRY_CNT,
-        .sq_psn          = dev->lnode.psn,
-        .max_rd_atomic   = dev->rnode.rd_atomic,
-        .path_mig_state  = IBV_MIG_REARM,
-        .alt_port_num    = Req.alt_port,
-        .alt_ah_attr     = {
-            .dlid        = dev->rnode.alt_lid,
-            .port_num    = Req.alt_port,
-            .static_rate = dev->ib.rate,
-            .sl          = Req.sl
+        .qp_state          = IBV_QPS_RTS,
+        .timeout           = LOCAL_ACK_TIMEOUT,
+        .retry_cnt         = RETRY_CNT,
+        .rnr_retry         = RNR_RETRY_CNT,
+        .sq_psn            = dev->lnode.psn,
+        .max_rd_atomic     = dev->rnode.rd_atomic,
+        .path_mig_state    = IBV_MIG_REARM,
+        .alt_port_num      = Req.alt_port,
+        .alt_ah_attr       = {
+            .dlid          = dev->rnode.alt_lid,
+            .port_num      = Req.alt_port,
+            .static_rate   = dev->ib.rate,
+	    .src_path_bits = Req.src_path_bits,
+            .sl            = Req.sl
         }
     };
     struct ibv_ah_attr ah_attr ={
-        .dlid           = dev->rnode.lid,
-        .port_num       = dev->ib.port,
-        .static_rate    = dev->ib.rate,
-        .sl             = Req.sl
+        .dlid          = dev->rnode.lid,
+        .port_num      = dev->ib.port,
+        .static_rate   = dev->ib.rate,
+	.src_path_bits = Req.src_path_bits,
+        .sl            = Req.sl
     };
 
     if (dev->trans == IBV_QPT_UD) {
@@ -2419,9 +2436,6 @@ rd_post_recv_std(DEVICE *dev, int n)
         .num_sge    = 1,
     };
     struct ibv_recv_wr *badwr;
-
-    if (dev->trans == IBV_QPT_UD)
-        sge.length += GRH_SIZE;
 
     errno = 0;
     while (!Finished && n-- > 0) {

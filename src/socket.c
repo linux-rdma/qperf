@@ -1,8 +1,8 @@
 /*
  * qperf - handle socket tests.
  *
- * Copyright (c) 2002-2008 Johann George.  All rights reserved.
- * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2009 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU

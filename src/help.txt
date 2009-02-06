@@ -112,6 +112,8 @@ Examples
             qperf myserver ud_lat ud_bw
         * To measure RDMA UC bi-directional bandwidth:
             qperf myserver rc_bi_bw
+        * To get a range of TCP latencies with a message size from 1 to 64K
+            qperf myserver -oo msg_size:1:64K:*2 -vu tcp_lat
 Opts
     --access_recv OnOff (-ar)           Turn on/off accessing received data
       -ar1                              Cause received data to be accessed
@@ -129,6 +131,7 @@ Opts
       --loc_id Device:Port (-li)        Set local RDMA device and port
       --rem_id Device:Port (-ri)        Set remote RDMA device and port
     --listen_port Port (-lp)            Set server listen port
+    --loop Var:Init:Last:Incr (-oo)     Sequence through values
     --msg_size Size (-m)                Set message size
     --mtu_size Size (-mt)               Set MTU size (RDMA only)
     --no_msgs Count (-n)                Send Count messages
@@ -149,6 +152,9 @@ Opts
     --sock_buf_size Size (-sb)          Set socket buffer size
       --loc_sock_buf_size Size (-lsb)   Set local socket buffer size
       --rem_sock_buf_size Size (-rsb)   Set remote socket buffer size
+    --src_path_bits num (-sp)           Set source path bits
+      --loc_src_path_bits num (-lsp)    Set local source path bits
+      --rem_src_path_bits num (-rsp)    Set remote source path bits
     --static_rate (-sr)                 Set IB static rate
       --loc_static_rate (-lsr)          Set local IB static rate
       --rem_static_rate (-rsr)          Set remote IB static rate
@@ -214,6 +220,11 @@ Options
           Set the port we listen on to ListenPort.  This must be set to the
           same port on both the server and client machines.  The default value
           is 19765.
+    --loop Var:Init:Last:Incr (-oo)
+        Run a test multiple times sequencing through a series of values.  Var
+        is the loop variable; Init is the initial value; Last is the value it
+        must not exceed and Incr is the increment.  It is useful to set the
+        --verbose_used (-vu) option in conjunction with this option.
     --msg_size Size (-m)
           Set the message size to Size.  The default value varies by test.  It
           is assumed that the value is specified in bytes however, a trailing
@@ -270,6 +281,13 @@ Options
           Set local socket buffer size.
       --rem_sock_buf_size Size (-rsb)
           Set remote socket buffer size.
+    --src_path_bits N (-sp)
+          Set source path bits. If the LMC is not zero, this will cause the
+          connection to use a LID with the low order LMC bits set to N.
+      --loc_src_path_bits N (-lsp)
+          Set local source path bits.
+      --rem_src_path_bits N (-rsp)
+          Set remote source path bits.
     --static_rate Rate (-sr)
           Force InfiniBand static rate.  Rate can be one of: 2.5, 5, 10, 20,
           30, 40, 60, 80, 120, 1xSDR (2.5 Gbps), 1xDDR (5 Gbps), 1xQDR (10
@@ -365,15 +383,18 @@ Tests +RDMA
         udp_bw                  UDP streaming one way bandwidth
         udp_lat                 UDP one way latency
     RDMA Send/Receive
-        ud_bw                   UD streaming one way bandwidth
-        ud_bi_bw                UD streaming two way bandwidth
-        ud_lat                  UD one way latency
-        rc_bw                   RC streaming one way bandwidth
         rc_bi_bw                RC streaming two way bandwidth
+        rc_bw                   RC streaming one way bandwidth
         rc_lat                  RC one way latency
-        uc_bw                   UC streaming one way bandwidth
         uc_bi_bw                UC streaming two way bandwidth
+        uc_bw                   UC streaming one way bandwidth
         uc_lat                  UC one way latency
+        ud_bi_bw                UD streaming two way bandwidth
+        ud_bw                   UD streaming one way bandwidth
+        ud_lat                  UD one way latency
+        xrc_bi_bw               XRC streaming two way bandwidth
+        xrc_bw                  XRC streaming one way bandwidth
+        xrc_lat                 XRC one way latency
     RDMA
         rc_rdma_read_bw         RC RDMA read streaming one way bandwidth
         rc_rdma_read_lat        RC RDMA read one way latency

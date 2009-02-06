@@ -1,8 +1,8 @@
 /*
  * qperf - general header file.
  *
- * Copyright (c) 2002-2008 Johann George.  All rights reserved.
- * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2009 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -119,6 +119,8 @@ typedef enum {
     R_SL,
     L_SOCK_BUF_SIZE,
     R_SOCK_BUF_SIZE,
+    L_SRC_PATH_BITS,
+    R_SRC_PATH_BITS,
     L_STATIC_RATE,
     R_STATIC_RATE,
     L_TIME,
@@ -165,6 +167,7 @@ typedef struct REQ {
     uint32_t    rd_atomic;              /* Number of pending RDMA or atomics */
     uint32_t    sl;                     /* Service level */
     uint32_t    sock_buf_size;          /* Socket buffer size */
+    uint32_t    src_path_bits;          /* Source path bits */
     uint32_t    time;                   /* Duration in seconds */
     uint32_t    timeout;                /* Timeout for messages */
     uint32_t    use_cm;                 /* Use Connection Manager */
@@ -271,7 +274,7 @@ void        send_sync(char *msg);
 void        setsockopt_one(int fd, int optname);
 void        synchronize(char *msg);
 void        touch_data(void *p, int n);
-void        urgent_error(void);
+void        urgent(void);
 
 
 /*

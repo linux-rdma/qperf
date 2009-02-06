@@ -2,8 +2,8 @@
  * qperf - support routines.
  * Measure socket and RDMA performance.
  *
- * Copyright (c) 2002-2008 Johann George.  All rights reserved.
- * Copyright (c) 2006-2008 QLogic Corporation.  All rights reserved.
+ * Copyright (c) 2002-2009 Johann George.  All rights reserved.
+ * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
  * licenses.  You may choose to be licensed under the terms of the GNU
@@ -411,26 +411,60 @@ setsockopt_one(int fd, int optname)
 
 
 /*
- * This is called when a SIGURG signal is received.  When the other side
- * encounters an error, it sends an out-of-band TCP/IP message to us which
- * causes a SIGURG signal to be received.
+ * This is called when a SIGURG signal is received indicating that TCP
+ * out-of-band data has arrived.  This is used by the remote end to indicate
+ * one of two conditions: the test has completed or an error has occurred.
  */
 void
-urgent_error(void)
+urgent(void)
 {
+    char *p, *q;
     char buffer[256];
-    char *p = buffer;
-    char *q = p + sizeof(buffer);
 
+    /*
+     * There is a slim chance that an urgent message arrived before accept
+     * returned.  This is likely not even possible with the current code flow
+     * but we check just in case.
+     */
+    if (RemoteFD < 0)
+        return;
+
+    /*
+     * This recv could fail if for some reason our socket buffer was full of
+     * in-band data and the remote side could not send the out of band data.
+     * If the recv fails with EWOULDBLOCK, we should keep reading in-band data
+     * until we clear the in-band data.  Since we do not send enough data for
+     * this case to cause us concern in the normal case, we do not expect this
+     * to ever occur.  If it does, we let the lower levels deal with it.
+     */
+    if (recv(RemoteFD, buffer, 1, MSG_OOB) != 1)
+        return;
+
+    /*
+     * If the indication is that the other side has completed its testing,
+     * indicate completion on our side also.
+     */
+    if (buffer[0] == '.') {
+        set_finished();
+        return;
+    }
+
+    /*
+     * If we are the server, we only print out client error messages if we are
+     * in debug mode.
+     */
     if (!Debug && !is_client())
         die();
 
+    p = buffer;
+    q = p + sizeof(buffer);
     buf_app(&p, q, remote_name());
     buf_app(&p, q, ": ");
     timeout_set(ERROR_TIMEOUT, sig_alrm_remote_failure);
 
     for (;;) {
         int s = sockatmark(RemoteFD);
+
         if (s < 0)
             remote_failure_error();
         if (s)
@@ -440,6 +474,7 @@ urgent_error(void)
 
     while (p < q) {
         int n = read(RemoteFD, p, q-p);
+
         if (n <= 0)
             break;
         p += n;
@@ -521,7 +556,7 @@ error(int actions, char *fmt, ...)
         return 0;
 
     if (RemoteFD >= 0) {
-        send(RemoteFD, "#", 1, MSG_OOB);
+        send(RemoteFD, "?", 1, MSG_OOB);
         write(RemoteFD, buffer, p-buffer);
         shutdown(RemoteFD, SHUT_WR);
         timeout_set(ERROR_TIMEOUT, sig_alrm_die);
