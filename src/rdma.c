@@ -82,16 +82,12 @@ typedef struct ibv_xrc_domain ibv_xrc;
 
 
 /*
- * Some of the tests.
+ * Atomic operations.
  */
-typedef enum ETEST {
-    RC_COMPARE_SWAP_MR,
-    RC_FETCH_ADD_MR,
-    RC_RDMA_READ_BW,
-    RC_RDMA_READ_LAT,
-    VER_RC_COMPARE_SWAP,
-    VER_RC_FETCH_ADD,
-} ETEST;
+typedef enum ATOMIC {
+    COMPARE_SWAP,
+    FETCH_ADD
+} ATOMIC;
 
 
 /*
@@ -188,6 +184,8 @@ typedef struct RATES {
 /*
  * Function prototypes.
  */
+static void     atomic_seq(ATOMIC atomic, int i,
+                                            uint64_t *value, uint64_t *args);
 static void     cm_ack_event(DEVICE *dev);
 static void     cm_close(DEVICE *dev);
 static char    *cm_event_name(int event, char *data, int size);
@@ -201,14 +199,13 @@ static void     cq_error(int status);
 static void     dec_node(NODE *host);
 static void     do_error(int status, uint64_t *errors);
 static void     enc_node(NODE *host);
-static void     ib_client_atomic(ETEST etest);
+static void     ib_client_atomic(ATOMIC atomic);
+static void     ib_client_verify_atomic(ATOMIC atomic);
 static void     ib_close(DEVICE *dev);
 static void     ib_migrate(DEVICE *dev);
 static void     ib_open(DEVICE *dev);
-static void     ib_post_compare_swap(DEVICE *dev,
-                     int wrid, int offset, uint64_t compare, uint64_t swap);
-static void     ib_post_fetch_add(DEVICE *dev,
-                                        int wrid, int offset, uint64_t add);
+static void     ib_post_atomic(DEVICE *dev, ATOMIC atomic, int wrid,
+                            int offset, uint64_t compare_add, uint64_t swap);
 static void     ib_prep(DEVICE *dev);
 static void     rd_bi_bw(int transport);
 static void     rd_client_bw(int transport);
@@ -230,7 +227,7 @@ static void     rd_pp_lat_loop(DEVICE *dev, IOMODE iomode);
 static void     rd_prep(DEVICE *dev, int size);
 static void     rd_rdma_write_poll_lat(int transport);
 static void     rd_server_def(int transport);
-static void     rd_server_nop(int transport, ETEST etest);
+static void     rd_server_nop(int transport, int size);
 static int      maybe(int val, char *msg);
 static char    *opcode_name(int opcode);
 static void     show_node_info(DEVICE *dev);
@@ -383,7 +380,7 @@ run_server_rc_bw(void)
 void
 run_client_rc_compare_swap_mr(void)
 {
-    ib_client_atomic(RC_COMPARE_SWAP_MR);
+    ib_client_atomic(COMPARE_SWAP);
 }
 
 
@@ -393,7 +390,7 @@ run_client_rc_compare_swap_mr(void)
 void
 run_server_rc_compare_swap_mr(void)
 {
-    rd_server_nop(IBV_QPT_RC, RC_COMPARE_SWAP_MR);
+    rd_server_nop(IBV_QPT_RC, sizeof(uint64_t));
 }
 
 
@@ -403,7 +400,7 @@ run_server_rc_compare_swap_mr(void)
 void
 run_client_rc_fetch_add_mr(void)
 {
-    ib_client_atomic(RC_FETCH_ADD_MR);
+    ib_client_atomic(FETCH_ADD);
 }
 
 
@@ -413,7 +410,7 @@ run_client_rc_fetch_add_mr(void)
 void
 run_server_rc_fetch_add_mr(void)
 {
-    rd_server_nop(IBV_QPT_RC, RC_FETCH_ADD_MR);
+    rd_server_nop(IBV_QPT_RC, sizeof(uint64_t));
 }
 
 
@@ -460,7 +457,7 @@ run_client_rc_rdma_read_bw(void)
 void
 run_server_rc_rdma_read_bw(void)
 {
-    rd_server_nop(IBV_QPT_RC, RC_RDMA_READ_BW);
+    rd_server_nop(IBV_QPT_RC, 0);
 }
 
 
@@ -481,7 +478,7 @@ run_client_rc_rdma_read_lat(void)
 void
 run_server_rc_rdma_read_lat(void)
 {
-    rd_server_nop(IBV_QPT_RC, RC_RDMA_READ_LAT);
+    rd_server_nop(IBV_QPT_RC, 0);
 }
 
 
@@ -833,62 +830,7 @@ run_server_xrc_lat(void)
 void
 run_client_ver_rc_compare_swap(void)
 {
-    int i;
-    DEVICE dev;
-    uint32_t size;
-    uint64_t *result;
-    uint64_t last = 0;
-    uint64_t cur = 0;
-    uint64_t next = 0x0123456789abcdefULL;
-
-    rd_params(IBV_QPT_RC, 0, 1, 1);
-    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
-    size = Req.rd_atomic * sizeof(uint64_t);
-    encode_uint32(&size, size);
-    send_mesg(&size, sizeof(size), "Memory region size");
-    rd_prep(&dev, size);
-    sync_test();
-    for (i = 0; i < Req.rd_atomic; ++i) {
-        ib_post_compare_swap(&dev, i, i*sizeof(uint64_t), cur, next);
-        cur = next;
-        next = cur + 1;
-    }
-    result = (uint64_t *) dev.buffer;
-    while (!Finished) {
-        struct ibv_wc wc[NCQE];
-        int n = rd_poll(&dev, wc, cardof(wc));
-        uint64_t res;
-
-        if (Finished)
-            break;
-        if (n > LStat.max_cqes)
-            LStat.max_cqes = n;
-        for (i = 0; i < n; ++i) {
-            int x = wc[i].wr_id;
-            int status = wc[i].status;
-
-            if (status == IBV_WC_SUCCESS) {
-                LStat.rem_r.no_bytes += sizeof(uint64_t);
-                LStat.rem_r.no_msgs++;
-            } else
-                do_error(status, &LStat.s.no_errs);
-            res = result[x];
-            if (last != res)
-                error(0, "compare and swap mismatch (expected %llx vs. %llx)",
-                                            (long long)last, (long long)res);
-            if (last)
-                    last++;
-            else
-                    last = 0x0123456789abcdefULL;
-            next = cur + 1;
-            ib_post_compare_swap(&dev, x, x*sizeof(uint64_t), cur, next);
-            cur = next;
-        }
-    }
-    stop_test_timer();
-    exchange_results();
-    rd_close(&dev);
-    show_results(MSG_RATE);
+    ib_client_verify_atomic(COMPARE_SWAP);
 }
 
 
@@ -898,7 +840,7 @@ run_client_ver_rc_compare_swap(void)
 void
 run_server_ver_rc_compare_swap(void)
 {
-    rd_server_nop(IBV_QPT_RC, VER_RC_COMPARE_SWAP);
+    rd_server_nop(IBV_QPT_RC, sizeof(uint64_t));
 }
 
 
@@ -908,52 +850,7 @@ run_server_ver_rc_compare_swap(void)
 void
 run_client_ver_rc_fetch_add(void)
 {
-    int i;
-    DEVICE dev;
-    uint32_t size;
-    uint64_t *result;
-    uint64_t last = 0;
-
-    rd_params(IBV_QPT_RC, 0, 1, 1);
-    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
-    size = Req.rd_atomic * sizeof(uint64_t);
-    encode_uint32(&size, size);
-    send_mesg(&size, sizeof(size), "Memory region size");
-    rd_prep(&dev, size);
-    sync_test();
-    for (i = 0; i < Req.rd_atomic; ++i)
-        ib_post_fetch_add(&dev, i, i*sizeof(uint64_t), 1);
-    result = (uint64_t *) dev.buffer;
-    while (!Finished) {
-        struct ibv_wc wc[NCQE];
-        int n = rd_poll(&dev, wc, cardof(wc));
-        uint64_t res;
-
-        if (Finished)
-            break;
-        if (n > LStat.max_cqes)
-            LStat.max_cqes = n;
-        for (i = 0; i < n; ++i) {
-            int x = wc[i].wr_id;
-            int status = wc[i].status;
-
-            if (status == IBV_WC_SUCCESS) {
-                LStat.rem_r.no_bytes += sizeof(uint64_t);
-                LStat.rem_r.no_msgs++;
-            } else
-                do_error(status, &LStat.s.no_errs);
-            res = result[x];
-            if (last != res)
-                error(0, "fetch and add mismatch (expected %llx vs. %llx)",
-                        (long long)last, (long long)res);
-            last++;
-            ib_post_fetch_add(&dev, x, x*sizeof(uint64_t), 1);
-        }
-    }
-    stop_test_timer();
-    exchange_results();
-    rd_close(&dev);
-    show_results(MSG_RATE);
+    ib_client_verify_atomic(FETCH_ADD);
 }
 
 
@@ -963,7 +860,7 @@ run_client_ver_rc_fetch_add(void)
 void
 run_server_ver_rc_fetch_add(void)
 {
-    rd_server_nop(IBV_QPT_RC, VER_RC_FETCH_ADD);
+    rd_server_nop(IBV_QPT_RC, sizeof(uint64_t));
 }
 
 
@@ -1349,25 +1246,12 @@ rd_client_rdma_bw(int transport, ibv_op opcode)
  * Server just waits and lets driver take care of any requests.
  */
 static void
-rd_server_nop(int transport, ETEST etest)
+rd_server_nop(int transport, int size)
 {
     DEVICE dev;
-    uint32_t size = 0;
 
     /* workaround: Size of RQ should be 0; bug in Mellanox driver */
     rd_open(&dev, transport, 0, 1);
-
-    /* Compute the size of the memory region */
-    if (etest == RC_COMPARE_SWAP_MR || etest == RC_FETCH_ADD_MR)
-        size = sizeof(uint64_t);
-    else if (etest == VER_RC_COMPARE_SWAP || etest == VER_RC_FETCH_ADD) {
-        recv_mesg(&size, sizeof(size), "Memory region size");
-        size = decode_uint32(&size);
-    } else if (etest == RC_RDMA_READ_BW || etest == RC_RDMA_READ_LAT)
-        size = 0;
-    else
-        error(BUG, "rd_server_nop: bad etest: %d", etest);
-
     rd_prep(&dev, size);
     sync_test();
     while (!Finished)
@@ -1382,7 +1266,7 @@ rd_server_nop(int transport, ETEST etest)
  * Measure messaging rate for an atomic operation.
  */
 static void
-ib_client_atomic(ETEST etest)
+ib_client_atomic(ATOMIC atomic)
 {
     int i;
     DEVICE dev;
@@ -1392,13 +1276,10 @@ ib_client_atomic(ETEST etest)
     rd_prep(&dev, sizeof(uint64_t));
     sync_test();
 
-    for (i = 0; i < Req.rd_atomic; ++i) {
-        if (etest == RC_FETCH_ADD_MR)
-            ib_post_fetch_add(&dev, 0, 0, 0);
-        else if (etest == RC_COMPARE_SWAP_MR)
-            ib_post_compare_swap(&dev, 0, 0, 0, 0);
-        else
-            error(BUG, "ib_client_atomic: bad etest: %d", etest);
+    for (i = 0; i < NCQE; ++i) {
+        if (Finished)
+            break;
+        ib_post_atomic(&dev, atomic, 0, 0, 0, 0);
     }
 
     while (!Finished) {
@@ -1417,10 +1298,7 @@ ib_client_atomic(ETEST etest)
                 LStat.rem_r.no_msgs++;
             } else
                 do_error(status, &LStat.s.no_errs);
-            if (etest == RC_FETCH_ADD_MR)
-                ib_post_fetch_add(&dev, 0, 0, 0);
-            else
-                ib_post_compare_swap(&dev, 0, 0, 0, 0);
+            ib_post_atomic(&dev, atomic, 0, 0, 0, 0);
         }
     }
 
@@ -1428,6 +1306,101 @@ ib_client_atomic(ETEST etest)
     exchange_results();
     rd_close(&dev);
     show_results(MSG_RATE);
+}
+
+
+/*
+ * Verify RC compare and swap (client side).
+ */
+static void
+ib_client_verify_atomic(ATOMIC atomic)
+{
+    int i;
+    int slots;
+    DEVICE dev;
+    uint64_t args[2];
+    int head = 0;
+    int tail = 0;
+
+    rd_params(IBV_QPT_RC, K64, 1, 1);
+    rd_open(&dev, IBV_QPT_RC, NCQE, 0);
+    slots = Req.msg_size / sizeof(uint64_t);
+    if (slots < 1)
+        error(0, "message size must be at least %d", sizeof(uint64_t));
+    if (slots > NCQE)
+        slots = NCQE;
+    rd_prep(&dev, 0);
+    sync_test();
+
+    for (i = 0; i < slots; ++i) {
+        if (Finished)
+            break;
+        atomic_seq(atomic, head++, 0, args);
+        ib_post_atomic(&dev, atomic, i, i*sizeof(uint64_t), args[0], args[1]);
+    }
+
+    while (!Finished) {
+        struct ibv_wc wc[NCQE];
+        int n = rd_poll(&dev, wc, cardof(wc));
+
+        if (Finished)
+            break;
+        if (n > LStat.max_cqes)
+            LStat.max_cqes = n;
+        for (i = 0; i < n; ++i) {
+            uint64_t want;
+            uint64_t seen;
+            int x = wc[i].wr_id;
+            int status = wc[i].status;
+
+            if (status == IBV_WC_SUCCESS) {
+                LStat.rem_r.no_bytes += sizeof(uint64_t);
+                LStat.rem_r.no_msgs++;
+            } else
+                do_error(status, &LStat.s.no_errs);
+
+            atomic_seq(atomic, tail++, &want, 0);
+            seen = ((uint64_t *)dev.buffer)[x];
+            if (seen != want) {
+                error(0, "mismatch, sequence %d, expected %llx, got %llx",
+                                    tail, (long long)want, (long long)seen);
+            }
+            atomic_seq(atomic, head++, 0, args);
+            ib_post_atomic(&dev, atomic, x, x*sizeof(uint64_t),
+                                                            args[0], args[1]);
+        }
+    }
+    stop_test_timer();
+    exchange_results();
+    rd_close(&dev);
+    show_results(MSG_RATE);
+}
+
+
+/*
+ * Given an atomic operation and an index, return the next value associated
+ * with that index and the arguments we might pass to post that atomic.
+ */
+static void
+atomic_seq(ATOMIC atomic, int i, uint64_t *value, uint64_t *args)
+{
+    if (atomic == COMPARE_SWAP) {
+        uint64_t v;
+        uint64_t magic = 0x0123456789abcdefULL;
+
+        v = i ? magic + i-1 : 0;
+        if (value)
+            *value = v;
+        if (args) {
+            args[0] = v;
+            args[1] = magic + i;
+        }
+    } else if (atomic == FETCH_ADD) {
+        if (value)
+            *value = i;
+        if (args)
+            args[0] = 1;
+    }
 }
 
 
@@ -1596,7 +1569,10 @@ show_node_info(DEVICE *dev)
 
 /*
  * Close a RDMA device.  We must destroy the CQ before the QP otherwise the
- * ibv_destroy_qp call seems to hang sometimes.
+ * ibv_destroy_qp call seems to sometimes hang.  We must also destroy the QP
+ * before destroying the memory region as we cannot destroy the memory region
+ * if there are references still outstanding.  Hopefully we now have things in
+ * the right order.
  */
 static void
 rd_close(DEVICE *dev)
@@ -1609,12 +1585,11 @@ rd_close(DEVICE *dev)
         ibv_dealloc_pd(dev->pd);
     if (dev->channel)
         ibv_destroy_comp_channel(dev->channel);
-    rd_mrfree(dev);
-
     if (Req.use_cm)
         cm_close(dev);
     else
         ib_close(dev);
+    rd_mrfree(dev);
 
     memset(dev, 0, sizeof(*dev));
 }
@@ -2282,11 +2257,11 @@ ib_migrate(DEVICE *dev)
 
 
 /*
- * Post a compare and swap request.
+ * Post an atomic.
  */
 static void
-ib_post_compare_swap(DEVICE *dev,
-                     int wrid, int offset, uint64_t compare, uint64_t swap)
+ib_post_atomic(DEVICE *dev, ATOMIC atomic, int wrid,
+                            int offset, uint64_t compare_add, uint64_t swap)
 {
     struct ibv_sge sge ={
         .addr   = (uintptr_t)dev->buffer + offset,
@@ -2297,63 +2272,35 @@ ib_post_compare_swap(DEVICE *dev,
         .wr_id      = wrid,
         .sg_list    = &sge,
         .num_sge    = 1,
-        .opcode     = IBV_WR_ATOMIC_CMP_AND_SWP,
         .send_flags = IBV_SEND_SIGNALED,
         .wr = {
             .atomic = {
                 .remote_addr = dev->rnode.vaddr,
                 .rkey        = dev->rnode.rkey,
-                .compare_add = compare,
-                .swap        = swap
             }
         }
     };
     struct ibv_send_wr *badwr;
 
-    errno = 0;
-    if (ibv_post_send(dev->qp, &wr, &badwr) != SUCCESS0) {
-        if (Finished && errno == EINTR)
-            return;
-        error(SYS, "failed to post compare and swap");
+    if (atomic == COMPARE_SWAP) {
+        wr.opcode = IBV_WR_ATOMIC_CMP_AND_SWP;
+        wr.wr.atomic.compare_add = compare_add;
+        wr.wr.atomic.swap = swap;
+    } else if (atomic == FETCH_ADD) {
+        wr.opcode = IBV_WR_ATOMIC_FETCH_AND_ADD;
+        wr.wr.atomic.compare_add = compare_add;
     }
 
-    LStat.s.no_bytes += sizeof(uint64_t);
-    LStat.s.no_msgs++;
-}
-
-
-/*
- * Post a fetch and add request.
- */
-static void
-ib_post_fetch_add(DEVICE *dev, int wrid, int offset, uint64_t add)
-{
-    struct ibv_sge sge ={
-        .addr   = (uintptr_t) dev->buffer + offset,
-        .length = sizeof(uint64_t),
-        .lkey   = dev->mr->lkey
-    };
-    struct ibv_send_wr wr ={
-        .wr_id      = wrid,
-        .sg_list    = &sge,
-        .num_sge    = 1,
-        .opcode     = IBV_WR_ATOMIC_FETCH_AND_ADD,
-        .send_flags = IBV_SEND_SIGNALED,
-        .wr = {
-            .atomic = {
-                .remote_addr = dev->rnode.vaddr,
-                .rkey        = dev->rnode.rkey,
-                .compare_add = add
-            }
-        }
-    };
-    struct ibv_send_wr *badwr;
-
     errno = 0;
     if (ibv_post_send(dev->qp, &wr, &badwr) != SUCCESS0) {
         if (Finished && errno == EINTR)
             return;
-        error(SYS, "failed to post fetch and add");
+        if (atomic == COMPARE_SWAP)
+            error(SYS, "failed to post compare and swap");
+        else if (atomic == FETCH_ADD)
+            error(SYS, "failed to post fetch and add");
+        else
+            error(BUG, "bad atomic: %d", atomic);
     }
 
     LStat.s.no_bytes += sizeof(uint64_t);
