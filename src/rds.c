@@ -296,7 +296,7 @@ server_get_hosts(char *lhost, char *rhost)
     laddr.sin_addr.s_addr = INADDR_ANY;
     laddr.sin_port = htons(0);
     if (bind(lfd, (SA *)&laddr, sizeof(laddr)) < 0)
-        error(SYS, "bind failed");
+        error(SYS, "bind INET failed");
 
     port = get_socket_port(lfd);
     encode_uint32(&port, port);
@@ -358,7 +358,7 @@ rds_socket(char *host, int port)
     setsockopt_one(sockfd, SO_REUSEADDR);
     rds_makeaddr(&sockaddr, &socklen, host, port);
     if (bind(sockfd, (SA *)&sockaddr, socklen) != SUCCESS0)
-        error(SYS, "bind failed");
+        error(SYS, "bind RDS failed");
     set_socket_buffer_size(sockfd);
     return sockfd;
 }

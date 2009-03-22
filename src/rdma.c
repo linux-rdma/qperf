@@ -1682,7 +1682,10 @@ rd_create_qp(DEVICE *dev, struct ibv_context *context, struct rdma_cm_id *id)
 
 
 /*
- * Allocate a memory region and register it.
+ * Allocate a memory region and register it.  I thought this routine should
+ * never be called with a size of 0 as prior code checks for that and sets it
+ * to some default value.  I appear to be wrong.  In that case, size is set to
+ * 1 so other code does not break.
  */
 static void
 rd_mralloc(DEVICE *dev, int size)
@@ -1693,7 +1696,7 @@ rd_mralloc(DEVICE *dev, int size)
     if (dev->buffer)
         error(BUG, "rd_mralloc: memory region already allocated");
     if (size == 0)
-        return;
+        size = 1;
 
     pagesize = sysconf(_SC_PAGESIZE);
     if (posix_memalign((void **)&dev->buffer, pagesize, size) != 0)
@@ -1720,11 +1723,11 @@ rd_mrfree(DEVICE *dev)
 {
     if (dev->mr)
         ibv_dereg_mr(dev->mr);
-    dev->mr = 0;
+    dev->mr = NULL;
 
     if (dev->buffer)
         free(dev->buffer);
-    dev->buffer = 0;
+    dev->buffer = NULL;
     dev->buf_size = 0;
 
     dev->lnode.rkey = 0;

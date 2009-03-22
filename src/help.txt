@@ -351,7 +351,7 @@ Options
           The current version of qperf is printed.
     --wait_server Time (-ws)
           If the server is not ready, continue to try connecting for Time
-          seconds before giving up.
+          seconds before giving up.  The default is 5 seconds.
 Tests -RDMA
     Miscellaneous
         conf                    Show configuration
@@ -902,14 +902,15 @@ ver_rc_compare_swap +RDMA
         --cq_poll OnOff         Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --cpu_affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
-        --timeout
+        --cpu_affinity, --listen_port, --msg_size, --mtu_size, --rd_atomic,
+        --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --verbose
     Description
         Test the RC Compare and Swap Atomic operation.  The server's memory
-        location starts with zero and the client successively exchanges, 0 for
-        1, 1 for 2, etc.  The results are checked for correctness.
+        location starts with zero and the client successively makes exchanges
+        with a variety of different values.  The results are checked for
+        correctness.
 ver_rc_fetch_add +RDMA
     Purpose
         Verify RC fetch and add
@@ -918,8 +919,8 @@ ver_rc_fetch_add +RDMA
         --cq_poll OnOff         Set polling mode on/off
         --time (-t)             Set test duration
     Other Options
-        --cpu_affinity, --listen_port, --mtu_size, --rd_atomic, --static_rate,
-        --timeout
+        --cpu_affinity, --listen_port, --msg_size, --mtu_size, --rd_atomic,
+        --static_rate, --timeout
     Display Options
         --precision, --unify_nodes, --unify_units, --use_bits_per_sec,
         --verbose

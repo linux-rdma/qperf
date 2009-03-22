@@ -252,7 +252,7 @@ run_client_udp_lat(void)
 /*
  * Measure UDP latency (server side).
  */
-    void
+void
 run_server_udp_lat(void)
 {
     datagram_server_lat(K_UDP);
