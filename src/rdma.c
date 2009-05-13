@@ -1577,6 +1577,10 @@ show_node_info(DEVICE *dev)
 static void
 rd_close(DEVICE *dev)
 {
+    if (Req.use_cm)
+        cm_close(dev);
+    else
+        ib_close(dev);
     if (dev->ah)
         ibv_destroy_ah(dev->ah);
     if (dev->cq)
@@ -1585,10 +1589,6 @@ rd_close(DEVICE *dev)
         ibv_dealloc_pd(dev->pd);
     if (dev->channel)
         ibv_destroy_comp_channel(dev->channel);
-    if (Req.use_cm)
-        cm_close(dev);
-    else
-        ib_close(dev);
     rd_mrfree(dev);
 
     memset(dev, 0, sizeof(*dev));
