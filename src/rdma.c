@@ -201,7 +201,8 @@ static void     do_error(int status, uint64_t *errors);
 static void     enc_node(NODE *host);
 static void     ib_client_atomic(ATOMIC atomic);
 static void     ib_client_verify_atomic(ATOMIC atomic);
-static void     ib_close(DEVICE *dev);
+static void     ib_close1(DEVICE *dev);
+static void     ib_close2(DEVICE *dev);
 static void     ib_migrate(DEVICE *dev);
 static void     ib_open(DEVICE *dev);
 static void     ib_post_atomic(DEVICE *dev, ATOMIC atomic, int wrid,
@@ -1580,7 +1581,8 @@ rd_close(DEVICE *dev)
     if (Req.use_cm)
         cm_close(dev);
     else
-        ib_close(dev);
+        ib_close1(dev);
+
     if (dev->ah)
         ibv_destroy_ah(dev->ah);
     if (dev->cq)
@@ -1590,6 +1592,9 @@ rd_close(DEVICE *dev)
     if (dev->channel)
         ibv_destroy_comp_channel(dev->channel);
     rd_mrfree(dev);
+
+    if (!Req.use_cm)
+        ib_close2(dev);
 
     memset(dev, 0, sizeof(*dev));
 }
@@ -2217,10 +2222,10 @@ ib_prep(DEVICE *dev)
 
 
 /*
- * Close an InfiniBand device.
+ * Close an InfiniBand device, part 1.
  */
 static void
-ib_close(DEVICE *dev)
+ib_close1(DEVICE *dev)
 {
     if (dev->qp)
         ibv_destroy_qp(dev->qp);
@@ -2228,6 +2233,15 @@ ib_close(DEVICE *dev)
         ibv_destroy_srq(dev->srq);
     if (dev->xrc)
         ibv_close_xrc_domain(dev->xrc);
+}
+
+
+/*
+ * Close an InfiniBand device, part 2.
+ */
+static void
+ib_close2(DEVICE *dev)
+{
     if (dev->ib.context)
         ibv_close_device(dev->ib.context);
     if (dev->ib.devlist)
