@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 5                       /* Incremental version */
+#define VER_INC 6                       /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -673,10 +673,10 @@ static void
 set_signals(void)
 {
     struct sigaction act ={
-        .sa_sigaction = sig_alrm,
         .sa_flags = SA_SIGINFO
     };
 
+    act.sa_sigaction = sig_alrm;
     sigaction(SIGALRM, &act, 0);
     sigaction(SIGPIPE, &act, 0);
 
@@ -1776,10 +1776,11 @@ run_client_quit(void)
 static void
 run_server_quit(void)
 {
+    int z;
     char buf[1];
 
     sync_test();
-    read(RemoteFD, buf, sizeof(buf));
+    z = read(RemoteFD, buf, sizeof(buf));
     kill(getppid(), SIGQUIT);
     exit(0);
 }
@@ -1812,7 +1813,11 @@ start_test_timer(int seconds)
 
     debug("starting timer for %d seconds", seconds);
     itimerval.it_value.tv_sec = seconds;
-    itimerval.it_interval.tv_usec = 1;
+    /*
+     * SLES11 has high precision timers; too low an interval will cause timer
+     * to fire extremely rapidly after first occurrence.  We set it to 10 ms.
+     */
+    itimerval.it_interval.tv_usec = 10000;
     setitimer(ITIMER_REAL, &itimerval, 0);
 }
 

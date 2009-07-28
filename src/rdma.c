@@ -326,6 +326,18 @@ RATES Rates[] ={
 
 
 /*
+ * This routine is never called and is solely to avoid compiler warnings for
+ * functions that are not currently being used.
+ */
+void
+rdma_not_called(void)
+{
+    if (0)
+        ib_migrate(NULL);
+}
+
+
+/*
  * Measure RC bi-directional bandwidth (client side).
  */
 void
@@ -1319,9 +1331,9 @@ ib_client_verify_atomic(ATOMIC atomic)
     int i;
     int slots;
     DEVICE dev;
-    uint64_t args[2];
     int head = 0;
     int tail = 0;
+    uint64_t args[2] = {0};
 
     rd_params(IBV_QPT_RC, K64, 1, 1);
     rd_open(&dev, IBV_QPT_RC, NCQE, 0);
@@ -1349,8 +1361,8 @@ ib_client_verify_atomic(ATOMIC atomic)
         if (n > LStat.max_cqes)
             LStat.max_cqes = n;
         for (i = 0; i < n; ++i) {
-            uint64_t want;
             uint64_t seen;
+            uint64_t want = 0;
             int x = wc[i].wr_id;
             int status = wc[i].status;
 
