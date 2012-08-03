@@ -2,6 +2,9 @@ bin_PROGRAMS = qperf
 
 if RDMA
 AM_CFLAGS = -Wall -O -DRDMA
+if HAS_XRC
+AM_CFLAGS += -DHAS_XRC=1
+endif
 qperf_SOURCES = qperf.c socket.c rds.c rdma.c support.c help.c qperf.h
 qperf_LDADD = -libverbs
 else

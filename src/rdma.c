@@ -767,6 +767,7 @@ run_server_ud_lat(void)
 }
 
 
+#ifdef HAS_XRC
 /*
  * Measure XRC bi-directional bandwidth (client side).
  */
@@ -836,6 +837,7 @@ run_server_xrc_lat(void)
 {
     rd_pp_lat(IBV_QPT_XRC, IO_SR);
 }
+#endif /* HAS_XRC */
 
 /*
  * Verify RC compare and swap (client side).
@@ -1559,10 +1561,13 @@ show_node_info(DEVICE *dev)
 
     if (Req.use_cm) 
         debug("L: rkey=%08x vaddr=%010x", n->rkey, n->vaddr);
+#ifdef HAS_XRC
     else if (dev->trans == IBV_QPT_XRC) {
         debug("L: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x srqn=%08x",
                         n->lid, n->qpn, n->psn, n->rkey, n->vaddr, n->srqn);
-    } else {
+    }
+#endif
+    else {
         debug("L: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
                             n->lid, n->qpn, n->psn, n->rkey, n->vaddr);
     }
@@ -1570,10 +1575,13 @@ show_node_info(DEVICE *dev)
     n = &dev->rnode;
     if (Req.use_cm) 
         debug("R: rkey=%08x vaddr=%010x", n->rkey, n->vaddr);
+#ifdef HAS_XRC
     else if (dev->trans == IBV_QPT_XRC) {
         debug("R: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x srqn=%08x",
                             n->lid, n->qpn, n->psn, n->rkey, n->vaddr);
-    } else {
+    }
+#endif
+    else {
         debug("R: lid=%04x qpn=%06x psn=%06x rkey=%08x vaddr=%010x",
                         n->lid, n->qpn, n->psn, n->rkey, n->vaddr, n->srqn);
     }
@@ -1668,6 +1676,7 @@ rd_create_qp(DEVICE *dev, struct ibv_context *context, struct rdma_cm_id *id)
                 error(SYS, "failed to create QP");
             dev->qp = id->qp;
         } else {
+#ifdef HAS_XRC
             if (dev->trans == IBV_QPT_XRC) {
                 struct ibv_srq_init_attr srq_attr ={
                     .attr ={
@@ -1689,6 +1698,7 @@ rd_create_qp(DEVICE *dev, struct ibv_context *context, struct rdma_cm_id *id)
                 qp_attr.cap.max_recv_sge = 0;
                 qp_attr.xrc_domain       = dev->xrc;
             }
+#endif /* HAS_XRC */
 
             dev->qp = ibv_create_qp(dev->pd, &qp_attr);
             if (!dev->qp)
@@ -2091,7 +2101,11 @@ ib_open(DEVICE *dev)
         if (dev->trans == IBV_QPT_UD) {
             flags |= IBV_QP_QKEY;
             attr.qkey = dev->qkey;
+#ifdef HAS_XRC
         } else if (dev->trans == IBV_QPT_RC || dev->trans == IBV_QPT_XRC) {
+#else
+        } else if (dev->trans == IBV_QPT_RC) {
+#endif
             flags |= IBV_QP_ACCESS_FLAGS;
             attr.qp_access_flags =
                 IBV_ACCESS_REMOTE_READ  |
@@ -2108,8 +2122,10 @@ ib_open(DEVICE *dev)
     /* Set up local node QP number, PSN and SRQ number */
     dev->lnode.qpn = dev->qp->qp_num;
     dev->lnode.psn = lrand48() & 0xffffff;
+#ifdef HAS_XRC
     if (dev->trans == IBV_QPT_XRC)
         dev->lnode.srqn = dev->srq->xrc_srq_num;
+#endif
 
     /* Set up alternate port LID */
     if (Req.alt_port) {
@@ -2189,7 +2205,11 @@ ib_prep(DEVICE *dev)
         dev->ah = ibv_create_ah(dev->pd, &ah_attr);
         if (!dev->ah)
             error(SYS, "failed to create address handle");
+#ifdef HAS_XRC
     } else if (dev->trans == IBV_QPT_RC || dev->trans == IBV_QPT_XRC) {
+#else
+    } else if (dev->trans == IBV_QPT_RC) {
+#endif
         /* Modify queue pair to RTR */
         flags = IBV_QP_STATE              |
                 IBV_QP_AV                 |
@@ -2243,8 +2263,10 @@ ib_close1(DEVICE *dev)
         ibv_destroy_qp(dev->qp);
     if (dev->srq)
         ibv_destroy_srq(dev->srq);
+#ifdef HAS_XRC
     if (dev->xrc)
         ibv_close_xrc_domain(dev->xrc);
+#endif
 }
 
 
@@ -2372,8 +2394,11 @@ rd_post_send(DEVICE *dev, int off, int len, int inc, int rep, int stat)
         wr.wr.ud.ah          = dev->ah;
         wr.wr.ud.remote_qpn  = dev->rnode.qpn;
         wr.wr.ud.remote_qkey = dev->qkey;
-    } else if (dev->trans == IBV_QPT_XRC)
+    }
+#ifdef HAS_XRC
+    else if (dev->trans == IBV_QPT_XRC)
         wr.xrc_remote_srq_num = dev->rnode.srqn;
+#endif
 
     if (dev->msg_size <= dev->max_inline)
         wr.send_flags |= IBV_SEND_INLINE;

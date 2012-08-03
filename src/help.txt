@@ -28,7 +28,9 @@ Author
     Written by Johann George.
 Bugs
     None of the RDMA tests are available if qperf is compiled without the RDMA
-    libraries.  The -f option is not yet implemented in many of the tests.
+    libraries.  None of the XRC tests are available if qperf is compiled
+    without the XRC extensions.  The -f option is not yet implemented in many
+    of the tests.
 Categories -RDMA
     To get help on a particular category, you may type:
         qperf --help CATEGORY

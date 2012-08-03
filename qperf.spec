@@ -1,10 +1,10 @@
 Name:           qperf
 Summary:        Measure socket and RDMA performance
-Version:        0.4.6
+Version:        0.4.7
 Release:        1
 License:        BSD 3-Clause, GPL v2
 Group:          Networking/Diagnostic
-Source:         http://www.openfabrics.org/downloads/qperf-0.4.6.tar.gz
+Source:         http://www.openfabrics.org/downloads/%{name}-%{version}.tar.gz
 Url:            http://www.openfabrics.org
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 BuildRequires:  libibverbs-devel

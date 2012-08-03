@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 6                       /* Incremental version */
+#define VER_INC 7                       /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -588,9 +588,11 @@ TEST Tests[] ={
     test(ud_lat),
     test(ver_rc_compare_swap),
     test(ver_rc_fetch_add),
+#ifdef HAS_XRC
     test(xrc_bi_bw),
     test(xrc_bw),
     test(xrc_lat),
+#endif /* HAS_XRC */
 #endif
 };
 
