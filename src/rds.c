@@ -1,6 +1,7 @@
 /*
  * qperf - handle RDS tests.
  *
+ * Copyright (c) 2012 Intel Corporation.  All rights reserved.
  * Copyright (c) 2002-2009 Johann George.  All rights reserved.
  * Copyright (c) 2006-2009 QLogic Corporation.  All rights reserved.
  *
@@ -48,7 +49,46 @@
 /*
  * Parameters.
  */
-#define AF_INET_RDS 28                  /* Family for RDS */
+#ifndef AF_RDS
+/*
+ * Before RDS was part of the Linux kernel, it was a module that picked
+ * an address famiy value and exported it via /proc.  Use the /proc
+ * value, if present, otherwise fall back to the actual value.
+ */
+#define DEFAULT_AF_RDS 21		/* actual value for AF_RDS */
+static int get_af_rds(void)
+{
+	static int af_rds = -1;
+
+	if (af_rds == -1) {
+		FILE *fp;
+		int read_fail = 0;
+
+		if ((fp = fopen("/proc/sys/net/rds/pf_rds", "r")) != NULL) {
+			int n, val;
+
+			n = fscanf(fp, "%d", &val);
+			fclose(fp);
+			if ((n == 1)) {
+				/* success */
+				af_rds = val;
+			} else {
+				read_fail = 1;
+				goto read_fail;
+			}
+		} else {
+read_fail:
+			error(RET, "AF_RDS not defined.  Unable to %s "
+				"/proc/sys/net/rds/pf_rds.  Using %d.\n",
+				read_fail ? "read":"open", DEFAULT_AF_RDS);
+			af_rds = DEFAULT_AF_RDS;
+		}
+	}
+
+	return af_rds;
+}
+#define AF_RDS get_af_rds()
+#endif
 
 
 /*
@@ -352,7 +392,7 @@ rds_socket(char *host, int port)
     SS sockaddr;
     socklen_t socklen;
 
-    sockfd = socket(AF_INET_RDS, SOCK_SEQPACKET, 0);
+    sockfd = socket(AF_RDS, SOCK_SEQPACKET, 0);
     if (sockfd < 0)
         error(SYS, "socket failed");
     setsockopt_one(sockfd, SO_REUSEADDR);
