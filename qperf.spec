@@ -1,6 +1,6 @@
 Name:           qperf
 Summary:        Measure socket and RDMA performance
-Version:        0.4.7
+Version:        0.4.8
 Release:        1
 License:        BSD 3-Clause, GPL v2
 Group:          Networking/Diagnostic
