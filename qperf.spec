@@ -4,10 +4,11 @@ Version:        0.4.7
 Release:        1
 License:        BSD 3-Clause, GPL v2
 Group:          Networking/Diagnostic
-Source:         http://www.openfabrics.org/downloads/%{name}-%{version}.tar.gz
+Source:         http://www.openfabrics.org/downloads/qperf/%{name}-%{version}.tar.gz
 Url:            http://www.openfabrics.org
 BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 BuildRequires:  libibverbs-devel
+BuildRequires:  librdmacm-devel
 
 %description
 Measure socket and RDMA performance.
