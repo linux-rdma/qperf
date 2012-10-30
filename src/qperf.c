@@ -2378,12 +2378,12 @@ view_band(int type, char *pref, char *name, double value)
     if (!verbose(type, value))
         return;
     if (UseBitsPerSec) {
-        char *t[] ={ "bits/sec", "Kb/sec", "Mb/sec", "Gb/sec", "Tb/sec" };
+        static char *t[] ={ "bits/sec", "Kb/sec", "Mb/sec", "Gb/sec", "Tb/sec" };
         s = cardof(t);
         tab = t;
         value *= 8;
     } else {
-        char *t[] ={ "bytes/sec", "KB/sec", "MB/sec", "GB/sec", "TB/sec" };
+        static char *t[] ={ "bytes/sec", "KB/sec", "MB/sec", "GB/sec", "TB/sec" };
         s = cardof(t);
         tab = t;
     }
