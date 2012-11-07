@@ -1778,11 +1778,10 @@ run_client_quit(void)
 static void
 run_server_quit(void)
 {
-    int z;
     char buf[1];
 
     sync_test();
-    z = read(RemoteFD, buf, sizeof(buf));
+    (void) read(RemoteFD, buf, sizeof(buf));
     kill(getppid(), SIGQUIT);
     exit(0);
 }

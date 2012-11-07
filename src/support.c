@@ -212,17 +212,16 @@ qasprintf(char *fmt, ...)
 void
 touch_data(void *p, int n)
 {
-    uint64_t a;
     volatile uint64_t *p64 = p;
 
     while (n >= sizeof(*p64)) {
-        a = *p64++;
+        (void) *p64++;
         n -= sizeof(*p64);
     }
     if (n) {
         volatile uint8_t *p8 = (uint8_t *)p64;
         while (n >= sizeof(*p8)) {
-            a = *p8++;
+            (void) *p8++;
             n -= sizeof(*p8);
         }
     }
@@ -419,7 +418,6 @@ setsockopt_one(int fd, int optname)
 void
 urgent(void)
 {
-    int z;
     char *p, *q;
     char buffer[256];
 
@@ -471,7 +469,7 @@ urgent(void)
             remote_failure_error();
         if (s)
             break;
-        z = read(RemoteFD, p, q-p);
+        (void) read(RemoteFD, p, q-p);
     }
 
     while (p < q) {
@@ -484,7 +482,7 @@ urgent(void)
     timeout_end();
 
     buf_end(&p, q);
-    z = write(2, buffer, p+1-buffer);
+    (void) write(2, buffer, p+1-buffer);
     die();
 }
 
@@ -505,7 +503,6 @@ sig_alrm_remote_failure(int signo, siginfo_t *siginfo, void *ucontext)
 static void
 remote_failure_error(void)
 {
-    int z;
     char buffer[256];
     char *p = buffer;
     char *q = p + sizeof(buffer);
@@ -513,7 +510,7 @@ remote_failure_error(void)
     buf_app(&p, q, remote_name());
     buf_app(&p, q, " failure");
     buf_end(&p, q);
-    z = write(2, buffer, p+1-buffer);
+    (void) write(2, buffer, p+1-buffer);
     die();
 }
 
@@ -539,7 +536,6 @@ remote_name(void)
 int
 error(int actions, char *fmt, ...)
 {
-    int z;
     va_list alist;
     char buffer[256];
     char *p = buffer;
@@ -561,7 +557,7 @@ error(int actions, char *fmt, ...)
 
     if (RemoteFD >= 0) {
         send(RemoteFD, "?", 1, MSG_OOB);
-        z = write(RemoteFD, buffer, p-buffer);
+        (void) write(RemoteFD, buffer, p-buffer);
         shutdown(RemoteFD, SHUT_WR);
         timeout_set(ERROR_TIMEOUT, sig_alrm_die);
         while (read(RemoteFD, buffer, sizeof(buffer)) > 0)
