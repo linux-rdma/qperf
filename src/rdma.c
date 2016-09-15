@@ -1494,7 +1494,7 @@ rd_open(DEVICE *dev, int trans, int max_send_wr, int max_recv_wr)
         struct ibv_qp_attr qp_attr;
         struct ibv_qp_init_attr qp_init_attr;
 
-        if (ibv_query_qp(dev->qp, &qp_attr, 0, &qp_init_attr) != 0)
+        if (ibv_query_qp(dev->qp, &qp_attr, IBV_QP_CAP, &qp_init_attr) != 0)
             error(SYS, "query QP failed");
         dev->max_inline = qp_attr.cap.max_inline_data;
     }
