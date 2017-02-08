@@ -1937,6 +1937,7 @@ cm_close(DEVICE *dev)
             error(SYS, "rdma_disconnect failed");
     cm_expect_event(dev, RDMA_CM_EVENT_DISCONNECTED);
     cm_ack_event(dev);
+    rdma_destroy_qp(dev->cm.id);
     rdma_destroy_id(dev->cm.id);
     rdma_destroy_event_channel(dev->cm.channel);
 }
