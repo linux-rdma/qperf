@@ -40,6 +40,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <linux/types.h>
 #include <rdma/rdma_cma.h>
 #include <infiniband/verbs.h>
 #include "qperf.h"
