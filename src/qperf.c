@@ -2784,6 +2784,8 @@ get_times(CLOCK timex[T_N])
     if (lseek(ProcStatFD, 0, 0) < 0)
         error(SYS, "failed to seek /proc/stat");
     n = read(ProcStatFD, buf, sizeof(buf)-1);
+    if (n < 0)
+        error(SYS, "failed to read /proc/stat");
     buf[n] = '\0';
     if (strncmp(buf, "cpu ", 4))
         error(0, "/proc/stat does not start with 'cpu '");
