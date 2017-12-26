@@ -22,6 +22,7 @@ rm -f `cat <<EOF
     src/help.c
     src/qperf.1
     src/qperf
+    compile
 EOF`
 
 # We need to keep qperf.spec around for the OFED scripts but delete it if we do
