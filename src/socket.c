@@ -699,10 +699,8 @@ getaddrinfo_kind(int serverflag, KIND kind, int port)
         .ai_socktype = SOCK_STREAM
     };
 
-    if (serverflag){
+    if (serverflag)
         hints.ai_flags |= AI_PASSIVE;
-        hints.ai_family = AF_INET6;
-    }	
     if (kind == K_UDP)
         hints.ai_socktype = SOCK_DGRAM;
 

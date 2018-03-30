@@ -43,8 +43,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <stdbool.h>
 #include "qperf.h"
+
 
 /*
  * Parameters.
@@ -107,7 +107,7 @@ static void     rds_makeaddr(SS *addr, socklen_t *len, char *host, int port);
 static void     set_parameters(long msgSize);
 static void     server_get_hosts(char *lhost, char *rhost);
 static void     set_socket_buffer_size(int fd);
-static inline bool  ipv6_addr_v4mapped(const struct in6_addr *a);
+
 
 /*
  * Static variables.
@@ -315,15 +315,6 @@ init(void)
 
 
 /*
- * Check if it is IPv4-mapped IPv6 address
- */
-static inline bool ipv6_addr_v4mapped(const struct in6_addr *a)
-{
-  return (a->s6_addr32[0] | a->s6_addr32[1] |
-          (a->s6_addr32[2] ^ htonl(0x0000ffff))) == 0;
-}
-
-/*
  * Have an exchange with the client over TCP/IP and get the IP of our local
  * host.
  */
@@ -332,42 +323,34 @@ server_get_hosts(char *lhost, char *rhost)
 {
     int fd, lfd;
     uint32_t port;
+    struct sockaddr_in laddr, raddr;
     socklen_t rlen;
-    struct sockaddr_in6 v6addr;
-    struct sockaddr_in v4addr;
-    SA *raddr;
 
-    lfd = socket(AF_INET6, SOCK_STREAM, 0);
+    lfd = socket(AF_INET, SOCK_STREAM, 0);
     if (lfd < 0)
         error(SYS, "socket failed");
     setsockopt_one(lfd, SO_REUSEADDR);
-    memset(&v6addr, 0, sizeof(v6addr));
-    v6addr.sin6_family = AF_INET6;
-    if (bind(lfd, (SA *)&v6addr, sizeof(v6addr)) < 0)
-          error(SYS, "bind INET6 failed");
+
+    memset(&laddr, 0, sizeof(laddr));
+    laddr.sin_family = AF_INET;
+    laddr.sin_addr.s_addr = INADDR_ANY;
+    laddr.sin_port = htons(0);
+    if (bind(lfd, (SA *)&laddr, sizeof(laddr)) < 0)
+        error(SYS, "bind INET failed");
 
     port = get_socket_port(lfd);
     encode_uint32(&port, port);
-    send_mesg(&port, sizeof(port), "TCP server port");
+    send_mesg(&port, sizeof(port), "TCP IPv4 server port");
+
     if (listen(lfd, 1) < 0)
         error(SYS, "listen failed");
 
-    rlen = sizeof(v6addr);
-    fd = accept(lfd, (SA *)&v6addr, &rlen);
+    rlen = sizeof(raddr);
+    fd = accept(lfd, (SA *)&raddr, &rlen);
     if (fd < 0)
         error(SYS, "accept failed");
     close(lfd);
-
-    if (ipv6_addr_v4mapped(&v6addr.sin6_addr)) {
-      v4addr.sin_family = AF_INET;
-      v4addr.sin_addr.s_addr = v6addr.sin6_addr.s6_addr32[3];
-      v4addr.sin_port = v6addr.sin6_port;
-      raddr = (SA *)&v4addr;
-      rlen = sizeof(v4addr);
-    } else {
-      raddr = (SA *)&v6addr;
-    }
-    get_socket_ip(raddr, rlen, rhost, NI_MAXHOST);
+    get_socket_ip((SA *)&raddr, rlen, rhost, NI_MAXHOST);
     send_mesg(rhost, NI_MAXHOST, "client IP");
     recv_mesg(lhost, NI_MAXHOST, "server IP");
     close(fd);
@@ -427,30 +410,13 @@ rds_socket(char *host, int port)
 static void
 rds_makeaddr(SS *addr, socklen_t *len, char *host, int port)
 {
-    int stat;
-    struct addrinfo *ailist;
     struct sockaddr_in *sap = (struct sockaddr_in *)addr;
-    struct sockaddr_in6 *sap6 = (struct sockaddr_in6 *)addr;
 
-    stat = getaddrinfo(host, NULL, NULL, &ailist);
-    if (stat != 0)
-        error(0, "getaddrinfo failed: %s", gai_strerror(stat));
-    switch (ailist->ai_family) {
-    case AF_INET:
     memset(sap, 0, sizeof(*sap));
-          memcpy(addr, ailist->ai_addr, ailist->ai_addrlen);
+    sap->sin_family = AF_INET;
+    inet_pton(AF_INET, host, &sap->sin_addr.s_addr);
     sap->sin_port = htons(port);
     *len = sizeof(struct sockaddr_in);
-          break;
-    case AF_INET6:
-	  memset(sap6, 0, sizeof(*sap6));
-	  memcpy(sap6, ailist->ai_addr, ailist->ai_addrlen);
-	  sap6->sin6_port = htons(port);
-          *len = sizeof(struct sockaddr_in6);
-          break;
-   default:
-	  error(0, "Unsupported Address family");
-   }
 }
 
 
@@ -465,7 +431,7 @@ connect_tcp(char *server, char *port, SS *addr, socklen_t *len, int *fd)
     struct addrinfo *aip, *ailist;
     struct addrinfo hints ={
         .ai_flags    = AI_NUMERICSERV,
-        .ai_family   = AF_UNSPEC,
+        .ai_family   = AF_INET,
         .ai_socktype = SOCK_STREAM
     };
 

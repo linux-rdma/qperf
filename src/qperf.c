@@ -62,7 +62,7 @@
  */
 #define VER_MAJ 0                       /* Major version */
 #define VER_MIN 4                       /* Minor version */
-#define VER_INC 11                       /* Incremental version */
+#define VER_INC 10                      /* Incremental version */
 #define LISTENQ 5                       /* Size of listen queue */
 #define BUFSIZE 1024                    /* Size of buffers */
 
@@ -1418,7 +1418,7 @@ server_listen(void)
     AI *ai;
     AI hints ={
         .ai_flags    = AI_PASSIVE | AI_NUMERICSERV,
-	.ai_family   = AF_INET6,
+        .ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
     };
     AI *ailist = getaddrinfo_port(0, ListenPort, &hints);
@@ -1450,7 +1450,7 @@ static int
 server_recv_request(void)
 {
     socklen_t clientLen;
-    SS clientAddr;
+    struct sockaddr_in clientAddr;
 
     clientLen = sizeof(clientAddr);
     RemoteFD = accept(ListenFD, (struct sockaddr *)&clientAddr, &clientLen);
