@@ -1874,10 +1874,11 @@ cm_open_server(DEVICE *dev)
         error(0, "rdma_bind_addr failed");
     port = ntohs(rdma_get_src_port(cm->id));
     encode_uint32(&port, port);
-    send_mesg(&port, sizeof(port), "RDMA CM TCP IPv4 server port");
 
     if (rdma_listen(cm->id, 0) != 0)
         error(0, "rdma_listen failed");
+    send_mesg(&port, sizeof(port), "RDMA CM TCP IPv4 server port");
+
     cm_expect_event(dev, RDMA_CM_EVENT_CONNECT_REQUEST);
     cm->id = cm->event->id;
     rd_create_qp(dev, cm->id->verbs, cm->id);
