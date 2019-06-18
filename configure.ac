@@ -1,4 +1,4 @@
-AC_INIT(qperf, 0.4.10, general@lists.openfabrics.org)
+AC_INIT(qperf, 0.4.11, general@lists.openfabrics.org)
 AM_INIT_AUTOMAKE
 AC_PROG_CC
 AC_CHECK_LIB(ibverbs, ibv_open_device, RDMA=1)
