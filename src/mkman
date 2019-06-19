@@ -7,7 +7,12 @@ use diagnostics;
 use POSIX;
 
 
-my $help_txt  = "help.txt";
+my $src_dir = '.';
+if (exists $ENV{'srcdir'}) {
+	$src_dir = $ENV{'srcdir'};
+}
+
+my $help_txt  = "$src_dir/help.txt";
 
 
 # Print out an error message and exit.

@@ -11,17 +11,18 @@ else
 AM_CFLAGS = -Wall -O
 qperf_SOURCES = qperf.c socket.c rds.c support.c help.c qperf.h
 endif
+EXTRA_DIST = help.txt mkman mkhelp
 
 man_MANS = qperf.1
 
-qperf.1: help.txt
-	./mkman >qperf.1
+qperf.1: $(srcdir)/help.txt
+	srcdir=$(srcdir) $(srcdir)/mkman >qperf.1
 
-help.c: help.txt
+help.c: $(srcdir)/help.txt
 if RDMA
-	./mkhelp RDMA
+	srcdir=$(srcdir) $(srcdir)/mkhelp RDMA
 else
-	./mkhelp
+	srcdir=$(srcdir) $(srcdir)/mkhelp
 endif
 
 clean-local:
