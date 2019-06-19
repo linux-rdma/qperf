@@ -4,8 +4,13 @@ use strict;
 use warnings;
 use diagnostics;
 
-my $help_txt = "help.txt";
-my $help_c   = "help.c";
+my $src_dir = '.';
+if (exists $ENV{'srcdir'}) {
+	$src_dir = $ENV{'srcdir'};
+}
+
+my $help_txt = "$src_dir/help.txt";
+my $help_c   = "$src_dir/help.c";
 my $top = "
 /*
  * This was generated from $help_txt.  Do not modify directly.
