@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <netinet/tcp.h>
 #include "qperf.h"
 
 
@@ -563,10 +564,15 @@ datagram_server_lat(KIND kind)
  * Set default IP parameters and ensure that any that are set are being used.
  */
 static void
-ip_parameters(long msgSize)
+ip_parameters(long defaultSize)
 {
-    setp_u32(0, L_MSG_SIZE, msgSize);
-    setp_u32(0, R_MSG_SIZE, msgSize);
+    int size = Req.msg_size;
+    if (!size)
+        size = defaultSize;
+    setp_u32(0, L_MSG_SIZE, size);
+    setp_u32(0, R_MSG_SIZE, size);
+    par_use(L_MSG_SIZE);
+    par_use(R_MSG_SIZE);
     par_use(L_PORT);
     par_use(R_PORT);
     par_use(L_SOCK_BUF_SIZE);
@@ -592,6 +598,10 @@ client_init(int *fd, KIND kind)
         if (!ai->ai_family)
             continue;
         *fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        {
+            int one = 1;
+            setsockopt(*fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+        }
 	setsockopt_one(*fd, SO_REUSEADDR);
         if (connect(*fd, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
             break;
@@ -625,6 +635,10 @@ stream_server_init(int *fd, KIND kind)
         listenFD = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (listenFD < 0)
             continue;
+        {
+            int one = 1;
+            setsockopt(listenFD, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+        }
         setsockopt_one(listenFD, SO_REUSEADDR);
         if (bind(listenFD, ai->ai_addr, ai->ai_addrlen) == SUCCESS0)
             break;
