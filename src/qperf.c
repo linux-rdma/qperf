@@ -1418,7 +1418,7 @@ server_listen(void)
     AI *ai;
     AI hints ={
         .ai_flags    = AI_PASSIVE | AI_NUMERICSERV,
-	.ai_family   = AF_INET6,
+	.ai_family   = AF_UNSPEC,
         .ai_socktype = SOCK_STREAM
     };
     AI *ailist = getaddrinfo_port(0, ListenPort, &hints);
